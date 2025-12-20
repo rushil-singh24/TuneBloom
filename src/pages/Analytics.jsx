@@ -3,8 +3,6 @@ import { motion } from 'framer-motion'
 import { localApi } from '@/lib/localApi'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, TrendingUp } from 'lucide-react'
-
-const base44 = localApi
 import { Link } from 'react-router-dom'
 import { createPageUrl } from '@/utils'
 import MusicAnalytics from '@/components/analytics/MusicAnalytics'
@@ -13,14 +11,14 @@ export default function AnalyticsPage(){
   const { data: likedTracks = [], isLoading } = useQuery({
     queryKey: ['likedTracks'],
     queryFn: async () => {
-      const tracks = await base44.entities.SwipedTrack.filter({ action: 'liked' }, '-created_date')
+      const tracks = await localApi.entities.SwipedTrack.filter({ action: 'liked' }, '-created_date')
       return tracks
     }
   })
 
   const { data: allTracks = [] } = useQuery({
     queryKey: ['allSwipedTracks'],
-    queryFn: () => base44.entities.SwipedTrack.list()
+    queryFn: () => localApi.entities.SwipedTrack.list()
   })
 
   const totalSwipes = allTracks.length
@@ -53,17 +51,30 @@ export default function AnalyticsPage(){
         </div>
       </motion.div>
 
-      {isLoading ? <div>Loading...</div> : <MusicAnalytics likedTracks={likedTracks} />}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-white/60">Loading your music analytics...</div>
+        </div>
+      ) : (
+        <MusicAnalytics likedTracks={likedTracks} />
+      )}
 
       {likedTracks.length >= 5 && (
-        <motion.div className="mt-6 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-2xl p-6">
+        <motion.div 
+          className="mt-6 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-2xl p-6 border border-purple-500/20"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+        >
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
               <TrendingUp className="w-6 h-6 text-white" />
             </div>
             <div>
               <h3 className="text-white font-semibold mb-1">Your Music DNA</h3>
-              <p className="text-white/60 text-sm">Based on your likes, you tend to prefer ...</p>
+              <p className="text-white/60 text-sm">
+                You've developed a consistent taste profile! Keep exploring to refine your recommendations.
+              </p>
             </div>
           </div>
         </motion.div>

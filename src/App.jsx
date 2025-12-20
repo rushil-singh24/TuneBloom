@@ -1,17 +1,87 @@
-import React from 'react'
-import { Routes, Route, Link } from 'react-router-dom'
-import Analytics from './pages/Analytics'
+import React, { useEffect } from "react"
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom"
+import { getToken } from "./config/spotify"
+import { spotifyApi } from "./services/spotifyApi"
+import BottomNav from "./components/shared/BottomNav"
+import Login from "./pages/Login"
+import Callback from "./pages/Callback"
+import Home from "./pages/Home"
+import Favorites from "./pages/Favorites"
+import Analytics from "./pages/Analytics"
+import Profile from "./pages/Profile"
 
-export default function App(){
+function ProtectedRoute({ children }) {
+  const token = getToken()
+  if (!token) return <Navigate to="/login" replace />
+  return children
+}
+
+export default function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const token = getToken()
+
+  useEffect(() => {
+    const publicRoutes = ["/login", "/callback"]
+    if (!token && !publicRoutes.includes(location.pathname)) {
+      navigate("/login", { replace: true })
+    }
+  }, [token, location.pathname, navigate])
+
+  useEffect(() => {
+    if (token && spotifyApi?.setToken) {
+      spotifyApi.setToken(token)
+    }
+  }, [token])
+
+  const hideBottomNav = ["/login", "/callback"].includes(location.pathname)
+
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white p-4">
-      <nav className="mb-6">
-        <Link to="/analytics" className="underline">Analytics</Link>
-      </nav>
+    <div className="min-h-screen bg-[#0a0a0a] text-white">
       <Routes>
-        <Route path="/analytics" element={<Analytics/>} />
-        <Route path="/" element={<div>Home — open <Link to="/analytics">Analytics</Link></div>} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/callback" element={<Callback />} />
+
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Home />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/favorites"
+          element={
+            <ProtectedRoute>
+              <Favorites />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute>
+              <Analytics />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+
+      {!hideBottomNav && token && <BottomNav />}
     </div>
   )
 }
