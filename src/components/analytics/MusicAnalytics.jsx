@@ -1,6 +1,9 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Music2, Zap, Smile, Music2 as MusicIcon, TrendingUp } from 'lucide-react'
+import { 
+  ResponsiveContainer, PieChart, Pie, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+} from 'recharts'
+import { Zap, Smile, Music2 as MusicIcon, TrendingUp, Music2 } from 'lucide-react'
 
 export default function MusicAnalytics({ likedTracks }){
   if(!likedTracks || likedTracks.length === 0) return (
@@ -10,33 +13,172 @@ export default function MusicAnalytics({ likedTracks }){
     </div>
   )
 
-  const avgEnergy = likedTracks.reduce((s,t)=>s+(t.energy||0),0)/likedTracks.length
-  const avgDanceability = likedTracks.reduce((s,t)=>s+(t.danceability||0),0)/likedTracks.length
-  const avgValence = likedTracks.reduce((s,t)=>s+(t.valence||0),0)/likedTracks.length
-  const avgTempo = likedTracks.reduce((s,t)=>s+(t.tempo||120),0)/likedTracks.length
+  // Calculate averages
+  const avgEnergy = likedTracks.reduce((sum, t) => sum + (t.energy || 0), 0) / likedTracks.length
+  const avgDanceability = likedTracks.reduce((sum, t) => sum + (t.danceability || 0), 0) / likedTracks.length
+  const avgValence = likedTracks.reduce((sum, t) => sum + (t.valence || 0), 0) / likedTracks.length
+  const avgTempo = likedTracks.reduce((sum, t) => sum + (t.tempo || 120), 0) / likedTracks.length
 
+  // Genre distribution
+  const genreCounts = {}
+  likedTracks.forEach(track => {
+    const genre = track.genre || 'Unknown'
+    genreCounts[genre] = (genreCounts[genre] || 0) + 1
+  })
+  
+  const genreData = Object.entries(genreCounts)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+
+  const COLORS = ['#1DB954', '#1ed760', '#22c55e', '#4ade80', '#86efac']
+
+  // Radar data
+  const radarData = [
+    { attribute: 'Energy', value: avgEnergy * 100 },
+    { attribute: 'Dance', value: avgDanceability * 100 },
+    { attribute: 'Happy', value: avgValence * 100 },
+    { attribute: 'Tempo', value: Math.min((avgTempo / 180) * 100, 100) },
+  ]
+
+  // Stats cards
   const stats = [
-    { icon: Zap, label: 'Energy', value: `${Math.round(avgEnergy*100)}%`, description: avgEnergy>0.7?'High energy!':'Balanced' },
-    { icon: MusicIcon, label: 'Danceability', value: `${Math.round(avgDanceability*100)}%`, description: avgDanceability>0.7?'Dance floor ready':'Groove worthy'},
-    { icon: Smile, label: 'Mood', value: `${Math.round(avgValence*100)}%`, description: avgValence>0.7?'Super positive':'Balanced mood'},
-    { icon: TrendingUp, label: 'Avg BPM', value: Math.round(avgTempo), description: avgTempo>130?'Fast paced':'Moderate' }
+    { 
+      icon: Zap, 
+      label: 'Energy', 
+      value: `${Math.round(avgEnergy * 100)}%`,
+      color: 'from-orange-500 to-red-500',
+      description: avgEnergy > 0.7 ? 'High energy!' : avgEnergy > 0.4 ? 'Balanced' : 'Chill vibes'
+    },
+    { 
+      icon: MusicIcon, 
+      label: 'Danceability', 
+      value: `${Math.round(avgDanceability * 100)}%`,
+      color: 'from-purple-500 to-pink-500',
+      description: avgDanceability > 0.7 ? 'Dance floor ready' : avgDanceability > 0.4 ? 'Groove worthy' : 'Head nodder'
+    },
+    { 
+      icon: Smile, 
+      label: 'Mood', 
+      value: `${Math.round(avgValence * 100)}%`,
+      color: 'from-green-500 to-emerald-500',
+      description: avgValence > 0.7 ? 'Super positive' : avgValence > 0.4 ? 'Balanced mood' : 'Melancholic'
+    },
+    { 
+      icon: TrendingUp, 
+      label: 'Avg BPM', 
+      value: Math.round(avgTempo),
+      color: 'from-blue-500 to-cyan-500',
+      description: avgTempo > 130 ? 'Fast paced' : avgTempo > 100 ? 'Moderate' : 'Slow groove'
+    },
   ]
 
   return (
     <div className="space-y-6">
+      {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
-        {stats.map((stat,index)=> (
-          <motion.div key={stat.label} className="bg-white/5 rounded-2xl p-4" initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:index*0.1}}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center mb-3"><stat.icon className="w-5 h-5 text-white"/></div>
+        {stats.map((stat, index) => (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.1 }}
+            className="bg-gradient-to-br from-white/3 to-white/6 rounded-2xl p-4 border border-white/10 shadow-sm"
+          >
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center mb-3`}>
+              <stat.icon className="w-5 h-5 text-white" />
+            </div>
             <p className="text-white/50 text-sm">{stat.label}</p>
-            <p className="text-2xl font-bold text-white">{stat.value}</p>
+            <p className="text-3xl font-extrabold text-white">{stat.value}</p>
             <p className="text-xs text-white/40 mt-1">{stat.description}</p>
           </motion.div>
         ))}
       </div>
 
+      {/* Radar Chart */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.4 }}
+        className="bg-white/6 backdrop-blur-lg rounded-2xl p-6 border border-white/10 shadow-lg"
+      >
+        <h2 className="text-2xl font-bold text-white mb-2">Your Sound Profile</h2>
+        <p className="text-white/60 text-sm mb-4">A visual summary of your audio preferences</p>
+        <div className="h-64 bg-gradient-to-b from-transparent to-black/20 rounded-lg p-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart data={radarData}>
+              <PolarGrid stroke="rgba(255,255,255,0.1)" />
+              <PolarAngleAxis 
+                dataKey="attribute" 
+                tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 12 }}
+              />
+              <PolarRadiusAxis 
+                angle={30} 
+                domain={[0, 100]} 
+                tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
+              />
+              <Radar
+                name="Your Taste"
+                dataKey="value"
+                stroke="#1DB954"
+                fill="#1DB954"
+                fillOpacity={0.35}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+      </motion.div>
+
+      {/* Genre Distribution */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.5 }}
+        className="bg-white/6 backdrop-blur-lg rounded-2xl p-6 border border-white/10 shadow-lg"
+      >
+        <h3 className="text-lg font-semibold text-white mb-4">Top Genres</h3>
+        {genreData.length === 0 ? (
+          <p className="text-white/60">No genre data yet — like more tracks to refine this chart.</p>
+        ) : (
+          <div className="flex items-center gap-6">
+            <div className="w-32 h-32">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={genreData}
+                    innerRadius={35}
+                    outerRadius={50}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {genreData.map((entry, index) => (
+                      <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex-1 space-y-2">
+              {genreData.map((genre, index) => (
+                <div key={genre.name} className="flex items-center gap-3">
+                  <div 
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                  />
+                  <span className="text-white/80 text-sm flex-1 capitalize">{genre.name}</span>
+                  <span className="text-white/50 text-sm">{genre.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </motion.div>
+
+      {/* Total Stats */}
       <div className="text-center py-4">
-        <p className="text-white/40 text-sm">Based on <span className="text-green-400 font-semibold">{likedTracks.length}</span> liked tracks</p>
+        <p className="text-white/40 text-sm">
+          Based on <span className="text-green-400 font-semibold">{likedTracks.length}</span> liked tracks
+        </p>
       </div>
     </div>
   )

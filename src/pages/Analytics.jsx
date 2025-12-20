@@ -1,8 +1,10 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { base44 } from '@/api/base44Client'
+import { localApi } from '@/lib/localApi'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, TrendingUp } from 'lucide-react'
+
+const base44 = localApi
 import { Link } from 'react-router-dom'
 import { createPageUrl } from '@/utils'
 import MusicAnalytics from '@/components/analytics/MusicAnalytics'
@@ -37,17 +39,17 @@ export default function AnalyticsPage(){
       </div>
 
       <motion.div className="grid grid-cols-3 gap-4 mb-6" initial={{opacity:0,y:20}} animate={{opacity:1,y:0}}>
-        <div className="bg-white/5 rounded-2xl p-4 text-center">
-          <p className="text-3xl font-bold text-white">{totalSwipes}</p>
-          <p className="text-white/50 text-xs mt-1">Total Swipes</p>
+        <div className="bg-gradient-to-br from-white/3 to-white/6 rounded-2xl p-4 text-center border border-white/5 shadow-sm">
+          <p className="text-4xl font-extrabold text-white">{totalSwipes}</p>
+          <p className="text-white/60 text-xs mt-1">Total Swipes</p>
         </div>
-        <div className="bg-white/5 rounded-2xl p-4 text-center">
-          <p className="text-3xl font-bold text-green-400">{likedTracks.length}</p>
-          <p className="text-white/50 text-xs mt-1">Liked</p>
+        <div className="bg-gradient-to-br from-green-700/10 to-green-500/10 rounded-2xl p-4 text-center border border-white/5 shadow-sm">
+          <p className="text-4xl font-extrabold text-green-400">{likedTracks.length}</p>
+          <p className="text-white/60 text-xs mt-1">Liked</p>
         </div>
-        <div className="bg-white/5 rounded-2xl p-4 text-center">
-          <p className="text-3xl font-bold text-white">{likeRate}%</p>
-          <p className="text-white/50 text-xs mt-1">Like Rate</p>
+        <div className="bg-gradient-to-br from-white/3 to-white/6 rounded-2xl p-4 text-center border border-white/5 shadow-sm">
+          <p className="text-4xl font-extrabold text-white">{likeRate}%</p>
+          <p className="text-white/60 text-xs mt-1">Like Rate</p>
         </div>
       </motion.div>
 
