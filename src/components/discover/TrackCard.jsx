@@ -1,58 +1,38 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React from 'react'
 import { motion, useMotionValue, useTransform, useAnimation } from 'framer-motion'
-import { Heart, X, Play, Pause } from 'lucide-react'
+import { Heart, X, ArrowRight, ArrowLeft } from 'lucide-react'
 
 export default function TrackCard({ track, onSwipe, isTopCard }) {
-  const [isPlaying, setIsPlaying] = useState(false)
-  const audioRef = useRef(null)
   const x = useMotionValue(0)
   const controls = useAnimation()
   
   // Transform x position to rotation
   const rotate = useTransform(x, [-200, 200], [-25, 25])
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0])
+  const likePulse = useTransform(x, [80, 200], [0, 1])
+  const skipPulse = useTransform(x, [-200, -80], [1, 0])
 
-  // Auto-play preview when card becomes top card
-  useEffect(() => {
-    if (isTopCard && track.preview_url && audioRef.current) {
-      // Small delay to ensure card is visible
-      const timer = setTimeout(() => {
-        audioRef.current?.play().catch(error => {
-          console.warn('Auto-play failed:', error)
-        })
-        setIsPlaying(true)
-      }, 300)
-      
-      return () => clearTimeout(timer)
-    } else if (!isTopCard && audioRef.current) {
-      // Pause when card is no longer top
-      audioRef.current.pause()
-      setIsPlaying(false)
-    }
-  }, [isTopCard, track.preview_url])
+  const performSwipe = (action) => {
+    const isLike = action === 'liked'
+    const flyOutDistance = isLike ? 1200 : -1200
+    const pulseKick = isLike ? 180 : -180
+    x.set(pulseKick)
+
+    controls.start({
+      x: flyOutDistance,
+      opacity: 0,
+      transition: { duration: 0.35, ease: 'easeIn' }
+    }).then(() => {
+      onSwipe(track, action)
+    })
+  }
 
   const handleDragEnd = (event, info) => {
     const threshold = 100
-    
     if (Math.abs(info.offset.x) > threshold) {
-      // Swipe detected - stop audio
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.currentTime = 0
-        setIsPlaying(false)
-      }
-      
-      const direction = info.offset.x > 0 ? 'right' : 'left'
-      const flyOutDistance = direction === 'right' ? 1000 : -1000
-      
-      controls.start({
-        x: flyOutDistance,
-        transition: { duration: 0.3 }
-      }).then(() => {
-        onSwipe(track, direction === 'right' ? 'liked' : 'disliked')
-      })
+      const direction = info.offset.x > 0 ? 'liked' : 'disliked'
+      performSwipe(direction)
     } else {
-      // Return to center
       controls.start({
         x: 0,
         transition: { type: 'spring', stiffness: 300, damping: 30 }
@@ -61,34 +41,11 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
   }
 
   const handleButtonSwipe = (action) => {
-    // Stop audio when swiping
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
-      setIsPlaying(false)
-    }
-    
-    const flyOutDistance = action === 'liked' ? 1000 : -1000
-    
-    controls.start({
-      x: flyOutDistance,
-      opacity: 0,
-      transition: { duration: 0.3 }
-    }).then(() => {
-      onSwipe(track, action)
-    })
+    performSwipe(action)
   }
 
-  const toggleAudio = () => {
-    if (!track.preview_url) return
-    
-    if (isPlaying) {
-      audioRef.current?.pause()
-      setIsPlaying(false)
-    } else {
-      audioRef.current?.play()
-      setIsPlaying(true)
-    }
+  const handleImageClick = (e) => {
+    e.stopPropagation()
   }
 
   if (!track) return null
@@ -110,7 +67,7 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
 
   return (
     <motion.div
-      className="absolute w-full h-full"
+      className="absolute w-full h-full px-4"
       style={{ x, rotate, opacity }}
       drag={isTopCard ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
@@ -119,125 +76,126 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
       initial={{ scale: isTopCard ? 1 : 0.95 }}
       whileTap={{ cursor: 'grabbing' }}
     >
-      <div className="relative w-full h-full bg-gradient-to-br from-purple-900/20 to-pink-900/20 rounded-3xl overflow-hidden shadow-2xl border border-white/10 backdrop-blur-sm">
-        {/* Album Art Background */}
-        <div className="absolute inset-0">
-          <img 
-            src={albumArt}
-            alt={track.name}
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-        </div>
-
-        {/* Content */}
-        <div className="relative h-full flex flex-col justify-between p-6">
-          {/* Top: Play button */}
-          {track.preview_url && (
-            <div className="flex justify-end">
-              <button
-                onClick={toggleAudio}
-                className="w-12 h-12 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center shadow-lg transition-all hover:scale-110"
-              >
-                {isPlaying ? (
-                  <Pause className="w-5 h-5 text-white" fill="white" />
-                ) : (
-                  <Play className="w-5 h-5 text-white ml-0.5" fill="white" />
-                )}
-              </button>
-              <audio
-                ref={audioRef}
-                src={track.preview_url}
-                onEnded={() => setIsPlaying(false)}
+      <div className="relative w-full h-full bg-[#0f0f0f] rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col">
+        <div className="flex flex-col h-full p-5 pb-10 gap-5">
+          {/* Album Art */}
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <div className="relative w-full max-w-[320px] sm:max-w-[340px] md:max-w-[360px]">
+              <img
+                src={albumArt}
+                alt={track.name}
+                className={`w-full aspect-square max-h-[340px] object-cover rounded-2xl shadow-xl ${track.preview_url ? 'cursor-pointer' : ''}`}
+                onClick={handleImageClick}
               />
             </div>
-          )}
+          </div>
 
-          {/* Bottom: Track Info */}
-          <div className="space-y-3">
-            <div>
-              <h2 className="text-3xl font-bold text-white mb-2 line-clamp-2">
-                {track.name}
-              </h2>
-              <p className="text-lg text-white/80 line-clamp-1">
-                {artists}
-              </p>
-              <p className="text-sm text-white/60 mt-1">
-                {track.album?.name}
-              </p>
-              <p className="text-xs text-white/50 mt-1">
-                Released: {formatReleaseDate(releaseDate)}
-              </p>
-            </div>
-
-            {/* Audio Features Preview */}
-            {track.audioFeatures && (
-              <div className="grid grid-cols-3 gap-2 mt-4">
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2">
-                  <p className="text-xs text-white/60">Energy</p>
-                  <p className="text-sm font-semibold text-white">
-                    {Math.round(track.audioFeatures.energy * 100)}%
-                  </p>
+          {/* Track Info */}
+          <div className="space-y-2 text-center">
+            <h2 className="text-2xl font-bold text-white line-clamp-2">
+              {track.name}
+            </h2>
+            <p className="text-white/80 text-base line-clamp-1">
+              {artists}
+            </p>
+            <p className="text-white/60 text-sm line-clamp-1">
+              {track.album?.name}
+            </p>
+            <p className="text-white/50 text-xs">
+              Released • {formatReleaseDate(releaseDate)}
+            </p>
+            {track.heardSamples?.length > 0 && (
+              <div className="mt-3 bg-white/5 border border-white/10 rounded-2xl p-3">
+                <p className="text-white/70 text-xs uppercase tracking-wide mb-2">Similar to your taste</p>
+                <div className="space-y-1">
+                  {track.heardSamples.slice(0, 3).map(sample => (
+                    <div key={sample.id} className="flex flex-col">
+                      <span className="text-sm text-white truncate">{sample.name}</span>
+                      <span className="text-xs text-white/60 truncate">{sample.artist}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2">
-                  <p className="text-xs text-white/60">Dance</p>
-                  <p className="text-sm font-semibold text-white">
-                    {Math.round(track.audioFeatures.danceability * 100)}%
-                  </p>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2">
-                  <p className="text-xs text-white/60">Mood</p>
-                  <p className="text-sm font-semibold text-white">
-                    {Math.round(track.audioFeatures.valence * 100)}%
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Swipe Actions (visible on mobile) */}
-            {isTopCard && (
-              <div className="flex justify-center gap-6 mt-6">
-                <button
-                  onClick={() => handleButtonSwipe('disliked')}
-                  className="w-16 h-16 rounded-full bg-red-500/90 hover:bg-red-500 flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
-                >
-                  <X className="w-8 h-8 text-white" strokeWidth={3} />
-                </button>
-                <button
-                  onClick={() => handleButtonSwipe('liked')}
-                  className="w-16 h-16 rounded-full bg-green-500/90 hover:bg-green-500 flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
-                >
-                  <Heart className="w-8 h-8 text-white" fill="white" strokeWidth={2} />
-                </button>
               </div>
             )}
           </div>
+
+          {/* Controls */}
+          {isTopCard && (
+            <div className="mt-3 mb-2 flex items-center justify-center gap-5">
+              <button
+                onClick={() => handleButtonSwipe('disliked')}
+                className="w-14 h-14 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center border border-white/10 transition-all hover:scale-105 active:scale-95"
+                aria-label="Skip"
+                title="Skip track"
+              >
+                <ArrowLeft className="w-7 h-7 text-white" strokeWidth={2.5} />
+              </button>
+
+              <button
+                onClick={() => handleButtonSwipe('liked')}
+                className="w-14 h-14 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95"
+                aria-label="Like"
+                title="Like track"
+              >
+                <ArrowRight className="w-7 h-7 text-white" strokeWidth={2} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Swipe Indicators */}
         <motion.div
-          className="absolute top-8 left-8"
+          className="absolute top-8 left-4"
           style={{ 
             opacity: useTransform(x, [0, 100], [0, 1]),
             scale: useTransform(x, [0, 100], [0.5, 1])
           }}
         >
-          <div className="px-6 py-3 bg-green-500 rounded-2xl rotate-12 border-4 border-white shadow-xl">
+          <motion.div
+            className="px-6 py-3 bg-red-500 rounded-2xl rotate-12 border-4 border-white shadow-xl flex items-center gap-2"
+            animate={{ scale: 1 }}
+          >
+            <Heart className="w-6 h-6 text-white" fill="white" />
             <span className="text-2xl font-black text-white">LIKE</span>
-          </div>
+          </motion.div>
         </motion.div>
 
         <motion.div
-          className="absolute top-8 right-8"
+          className="absolute top-8 right-4"
           style={{ 
             opacity: useTransform(x, [-100, 0], [1, 0]),
             scale: useTransform(x, [-100, 0], [1, 0.5])
           }}
         >
-          <div className="px-6 py-3 bg-red-500 rounded-2xl -rotate-12 border-4 border-white shadow-xl">
+          <motion.div
+            className="px-6 py-3 bg-red-500 rounded-2xl -rotate-12 border-4 border-white shadow-xl flex items-center gap-2"
+            animate={{ scale: 1 }}
+          >
+            <X className="w-6 h-6 text-white" />
             <span className="text-2xl font-black text-white">SKIP</span>
+          </motion.div>
+        </motion.div>
+
+        {/* Pulse overlay for drag feedback */}
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ opacity: likePulse }}
+        >
+          <div className="flex items-center gap-2 px-5 py-3 bg-green-500/20 border border-green-400/50 rounded-full backdrop-blur-md">
+            <Heart className="w-6 h-6 text-green-200" fill="currentColor" />
+            <span className="text-green-100 font-semibold">Keep it</span>
           </div>
         </motion.div>
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ opacity: skipPulse }}
+        >
+          <div className="flex items-center gap-2 px-5 py-3 bg-red-500/20 border border-red-400/50 rounded-full backdrop-blur-md">
+            <X className="w-6 h-6 text-red-200" />
+            <span className="text-red-100 font-semibold">Skip</span>
+          </div>
+        </motion.div>
+
       </div>
     </motion.div>
   )

@@ -28,8 +28,10 @@ class SpotifyAPI {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error?.message || `HTTP ${response.status}`);
+      const errorBody = await response.json().catch(() => ({}));
+      const message = errorBody.error?.message || errorBody.message || `HTTP ${response.status}`;
+      const statusText = response.statusText || '';
+      throw new Error(`${message}${statusText ? ` (${statusText})` : ''}`);
     }
 
     return response.json();
@@ -53,7 +55,11 @@ class SpotifyAPI {
   }
 
   async getRecommendations(params) {
-    const queryParams = new URLSearchParams(params).toString();
+    const merged = {
+      market: params?.market || "from_token",
+      ...params,
+    };
+    const queryParams = new URLSearchParams(merged).toString();
     return this.request(`/recommendations?${queryParams}`);
   }
 
@@ -66,6 +72,10 @@ class SpotifyAPI {
     return this.request(`/me/playlists?limit=${limit}`);
   }
 
+  async getPlaylistTracks(playlistId, limit = 100, offset = 0) {
+    return this.request(`/playlists/${playlistId}/tracks?limit=${limit}&offset=${offset}`);
+  }
+
   async createPlaylist(userId, name, description = "", isPublic = true) {
     return this.request(`/users/${userId}/playlists`, {
       method: "POST",
@@ -73,15 +83,6 @@ class SpotifyAPI {
         name,
         description,
         public: isPublic,
-      }),
-    });
-  }
-
-  async addTracksToPlaylist(playlistId, trackUris) {
-    return this.request(`/playlists/${playlistId}/tracks`, {
-      method: "POST",
-      body: JSON.stringify({
-        uris: trackUris,
       }),
     });
   }
@@ -103,9 +104,19 @@ class SpotifyAPI {
     return this.request(`/tracks/${trackId}`);
   }
 
-  async getTracks(trackIds) {
+  async getTracks(trackIds, market = "from_token") {
     const ids = trackIds.join(",");
-    return this.request(`/tracks?ids=${ids}`);
+    const query = new URLSearchParams({ ids, market }).toString();
+    return this.request(`/tracks?${query}`);
+  }
+
+  async addTracksToPlaylist(playlistId, trackUris) {
+    return this.request(`/playlists/${playlistId}/tracks`, {
+      method: "POST",
+      body: JSON.stringify({
+        uris: trackUris,
+      }),
+    });
   }
 
   async getRecentlyPlayed(limit = 50) {

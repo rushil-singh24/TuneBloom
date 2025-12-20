@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Search, Heart, User } from "lucide-react";
+import { Home, Heart, User } from "lucide-react";
 
 export default function BottomNav() {
   return (
@@ -20,11 +20,6 @@ export default function BottomNav() {
     >
       <NavLink to="/" style={linkStyle}>
         <Home size={22} />
-        <span style={labelStyle}>Home</span>
-      </NavLink>
-
-      <NavLink to="/discover" style={linkStyle}>
-        <Search size={22} />
         <span style={labelStyle}>Discover</span>
       </NavLink>
 

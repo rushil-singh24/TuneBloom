@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { getCodeFromUrl, exchangeCodeForToken, setToken, verifyState, getToken } from "@/config/spotify"
 import { spotifyApi } from "@/services/spotifyApi"
 
@@ -7,6 +8,7 @@ export default function Callback() {
   const navigate = useNavigate()
   const [error, setError] = useState(null)
   const hasProcessed = useRef(false) // Prevent double execution in React StrictMode
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     // Prevent double execution in React StrictMode
@@ -114,6 +116,16 @@ export default function Callback() {
         spotifyApi.setToken(verifyToken)
         console.log('✅ Token set in spotifyApi service')
         console.log('✅ Token verified and ready')
+
+        // Fetch and cache user profile after login
+        try {
+          const userProfile = await spotifyApi.getCurrentUser()
+          sessionStorage.setItem('spotify_current_user', JSON.stringify(userProfile))
+          queryClient.setQueryData(['currentUser'], userProfile)
+          console.log('✅ User profile cached after login')
+        } catch (profileError) {
+          console.warn('Could not fetch user profile during callback:', profileError)
+        }
         
         // Clear URL params now that we've successfully processed them
         getCodeFromUrl(true)

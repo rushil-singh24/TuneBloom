@@ -27,7 +27,6 @@ export const generatePKCE = async () => {
   const hashed = await sha256(codeVerifier)
   const codeChallenge = base64encode(hashed)
   
-  // Store code verifier in sessionStorage
   sessionStorage.setItem('spotify_code_verifier', codeVerifier)
   
   return { codeVerifier, codeChallenge }
@@ -40,31 +39,12 @@ export const generateState = () => {
   return state
 }
 
-// Automatically detect environment and set redirect URI
-const getRedirectUri = () => {
-  // If explicitly set in env, use that
-  if (import.meta.env.VITE_REDIRECT_URI) {
-    return import.meta.env.VITE_REDIRECT_URI
-  }
-  
-  // Auto-detect based on environment
-  if (import.meta.env.PROD) {
-    // Production: use the deployed URL (you'll set this in your deployment platform)
-    return import.meta.env.VITE_APP_URL 
-      ? `${import.meta.env.VITE_APP_URL}/callback`
-      : window.location.origin + '/callback'
-  } else {
-    // Development: use 127.0.0.1 (Spotify requires explicit IP, not localhost)
-    return 'http://127.0.0.1:5173/callback'
-  }
-}
-
 export const spotifyConfig = {
-  clientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || 'YOUR_CLIENT_ID_HERE',
-  redirectUri: getRedirectUri(),
+  // Try to read from .env, but fallback to hardcoded value
+  clientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || '6fe7b7e4dddb40ff95bb6f6df02e6e3d',
+  redirectUri: import.meta.env.VITE_REDIRECT_URI || 'http://127.0.0.1:5173/callback',
   authEndpoint: 'https://accounts.spotify.com/authorize',
 
-  // Scopes define what your app can access
   scopes: [
     'user-read-private',           
     'user-read-email',             
@@ -78,25 +58,22 @@ export const spotifyConfig = {
   ]
 }
 
-// Debug: Log config on load (only in dev)
-if (import.meta.env.DEV) {
-  console.log('🎵 Spotify Config Loaded:', {
-    clientId: spotifyConfig.clientId ? `${spotifyConfig.clientId.substring(0, 10)}...` : 'MISSING',
-    redirectUri: spotifyConfig.redirectUri,
-    envClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID ? 'LOADED' : 'NOT LOADED',
-    envRedirectUri: import.meta.env.VITE_REDIRECT_URI || 'NOT SET (using default)'
-  })
-}
+// Debug: Log config on load
+console.log('🎵 Spotify Config Loaded:', {
+  clientId: spotifyConfig.clientId ? `${spotifyConfig.clientId.substring(0, 10)}...` : 'MISSING',
+  redirectUri: spotifyConfig.redirectUri,
+  source: import.meta.env.VITE_SPOTIFY_CLIENT_ID ? 'from .env' : 'hardcoded fallback',
+  hasValidClientId: spotifyConfig.clientId && spotifyConfig.clientId.length > 20
+})
 
-// Generate Spotify authorization URL (Authorization Code Flow with PKCE)
+// Generate Spotify authorization URL
 export const getAuthUrl = async () => {
   const { clientId, redirectUri, authEndpoint, scopes } = spotifyConfig
 
   // Validate client ID
-  if (!clientId || clientId === 'YOUR_CLIENT_ID_HERE') {
-    console.error('❌ Spotify Client ID is missing!')
-    console.error('Please create a .env file with VITE_SPOTIFY_CLIENT_ID=your_client_id')
-    alert('Spotify Client ID is not configured. Please check your .env file and restart the dev server.')
+  if (!clientId || clientId.length < 20) {
+    console.error('❌ Spotify Client ID is invalid!')
+    alert('Spotify Client ID is not configured correctly.')
     return null
   }
 
@@ -114,25 +91,15 @@ export const getAuthUrl = async () => {
     state: state,
     code_challenge_method: 'S256',
     code_challenge: codeChallenge,
-    show_dialog: 'true' // Force user to approve even if previously authorized
+    show_dialog: 'true'
   })
 
-  // Debug logging (remove in production)
-  if (import.meta.env.DEV) {
-    console.log('🔍 Spotify OAuth Debug (Authorization Code Flow):', {
-      clientId: clientId ? `${clientId.substring(0, 10)}...` : 'MISSING',
-      redirectUri,
-      hasClientId: !!clientId && clientId !== 'YOUR_CLIENT_ID_HERE',
-      flow: 'Authorization Code Flow with PKCE'
-    })
-    console.log('🔗 Full Auth URL:', `${authEndpoint}?${params.toString()}`)
-    console.log('✅ Make sure this EXACT redirect URI is in Spotify dashboard:', redirectUri)
-  }
+  console.log('🔗 Auth URL generated with Client ID:', clientId.substring(0, 10) + '...')
 
   return `${authEndpoint}?${params.toString()}`
 }
 
-// Extract authorization code and state from URL query params (Authorization Code Flow)
+// Extract authorization code from URL
 export const getCodeFromUrl = (clearParams = false) => {
   try {
     const params = new URLSearchParams(window.location.search)
@@ -140,7 +107,6 @@ export const getCodeFromUrl = (clearParams = false) => {
     const state = params.get('state')
     const error = params.get('error')
     
-    // Only clear query params if requested (after successful processing)
     if (clearParams) {
       window.history.replaceState({}, document.title, window.location.pathname)
     }
@@ -151,20 +117,15 @@ export const getCodeFromUrl = (clearParams = false) => {
   }
 }
 
-// Exchange authorization code for access token (Authorization Code Flow with PKCE)
+// Exchange authorization code for access token
 export const exchangeCodeForToken = async (code) => {
   const { clientId, redirectUri } = spotifyConfig
   const codeVerifier = sessionStorage.getItem('spotify_code_verifier')
   
-  console.log('🔑 Token exchange request:', {
-    hasCode: !!code,
-    hasCodeVerifier: !!codeVerifier,
-    redirectUri,
-    clientId: clientId ? `${clientId.substring(0, 10)}...` : 'MISSING'
-  })
+  console.log('🔑 Token exchange with Client ID:', clientId.substring(0, 10) + '...')
   
   if (!codeVerifier) {
-    console.error('❌ Code verifier not found in sessionStorage')
+    console.error('❌ Code verifier not found')
     throw new Error('Code verifier not found. Please try logging in again.')
   }
 
@@ -177,8 +138,6 @@ export const exchangeCodeForToken = async (code) => {
       code_verifier: codeVerifier
     })
     
-    console.log('📤 Sending token exchange request...')
-    
     const response = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
       headers: {
@@ -188,8 +147,6 @@ export const exchangeCodeForToken = async (code) => {
     })
 
     const responseText = await response.text()
-    console.log('📥 Token exchange response status:', response.status)
-    console.log('📥 Token exchange response:', responseText.substring(0, 200))
 
     if (!response.ok) {
       let errorData
@@ -204,14 +161,8 @@ export const exchangeCodeForToken = async (code) => {
 
     const data = JSON.parse(responseText)
     
-    console.log('✅ Token exchange successful:', {
-      hasAccessToken: !!data.access_token,
-      hasRefreshToken: !!data.refresh_token,
-      expiresIn: data.expires_in,
-      tokenType: data.token_type
-    })
+    console.log('✅ Token exchange successful')
     
-    // Clean up PKCE verifier
     sessionStorage.removeItem('spotify_code_verifier')
     
     return {
@@ -229,11 +180,11 @@ export const exchangeCodeForToken = async (code) => {
 // Store token with expiry
 export const setToken = (tokenData) => {
   if (!tokenData || !tokenData.access_token) {
-    console.error('❌ setToken called with invalid tokenData:', tokenData)
+    console.error('❌ setToken called with invalid tokenData')
     return false
   }
   
-  const expiry = Date.now() + (tokenData.expires_in * 1000) // Convert seconds to milliseconds
+  const expiry = Date.now() + (tokenData.expires_in * 1000)
   try {
     sessionStorage.setItem('spotify_token', tokenData.access_token)
     sessionStorage.setItem('spotify_token_expiry', expiry.toString())
@@ -241,17 +192,10 @@ export const setToken = (tokenData) => {
       sessionStorage.setItem('spotify_refresh_token', tokenData.refresh_token)
     }
     
-    // Verify token was stored
-    const storedToken = sessionStorage.getItem('spotify_token')
-    if (storedToken === tokenData.access_token) {
-      console.log('✅ Token stored successfully and verified')
-      return true
-    } else {
-      console.error('❌ Token storage verification failed')
-      return false
-    }
+    console.log('✅ Token stored successfully')
+    return true
   } catch (error) {
-    console.error('❌ Unable to store Spotify token in sessionStorage:', error)
+    console.error('❌ Unable to store token:', error)
     return false
   }
 }

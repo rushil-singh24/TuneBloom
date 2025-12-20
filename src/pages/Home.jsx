@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { RotateCcw, Sparkles, Music2 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { RotateCcw, Sparkles, Music2, Undo2 } from 'lucide-react'
 import TrackCard from '@/components/discover/TrackCard'
 import { recommendationEngine } from '@/services/recommendationEngine'
 import { spotifyApi } from '@/services/spotifyApi'
@@ -12,6 +12,9 @@ export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [swipedTracks, setSwipedTracks] = useState([])
   const [likedTracks, setLikedTracks] = useState([])
+  const [feedbackVersion, setFeedbackVersion] = useState(0)
+  const [vibeShift, setVibeShift] = useState(0)
+  const [undoStack, setUndoStack] = useState([]) // stack of { track, action }
   const token = getToken()
 
   // Ensure token is set in spotifyApi before fetching
@@ -24,7 +27,7 @@ export default function Home() {
 
   // Fetch recommendations - only if token exists
   const { data: recommendations = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['recommendations', token],
+    queryKey: ['recommendations', token, feedbackVersion, vibeShift],
     queryFn: async () => {
       // Double-check token is set
       if (!spotifyApi.token) {
@@ -35,7 +38,10 @@ export default function Home() {
           throw new Error('No access token available')
         }
       }
-      const recs = await recommendationEngine.generateRecommendations(50)
+      const recs = await recommendationEngine.generateRecommendations(50, {
+        likedTracks,
+        vibeShift
+      })
       return recs
     },
     enabled: !!token, // Only run query if token exists
@@ -45,12 +51,12 @@ export default function Home() {
 
   // Handle swipe action
   const handleSwipe = async (track, action) => {
+    if (!track) return
     const swipedTrack = {
       id: track.id,
       name: track.name,
       artists: track.artists,
       album: track.album,
-      preview_url: track.preview_url,
       uri: track.uri,
       action,
       energy: track.audioFeatures?.energy,
@@ -62,6 +68,7 @@ export default function Home() {
     }
 
     setSwipedTracks(prev => [...prev, swipedTrack])
+    setUndoStack(prev => [...prev, { track, action }])
     
     if (action === 'liked') {
       setLikedTracks(prev => [...prev, swipedTrack])
@@ -79,8 +86,46 @@ export default function Home() {
 
   const handleRefresh = () => {
     setCurrentIndex(0)
+    setFeedbackVersion(v => v + 1)
+    setVibeShift(v => v + 1)
+    setUndoStack([])
     refetch()
   }
+
+  const handleUndo = () => {
+    if (currentIndex === 0 || undoStack.length === 0) return
+    const last = undoStack[undoStack.length - 1]
+    if (!last) return
+    const { track, action } = last
+
+    setCurrentIndex(prev => Math.max(0, prev - 1))
+    setSwipedTracks(prev => prev.slice(0, -1))
+    setUndoStack(prev => prev.slice(0, -1))
+
+    if (action === 'liked') {
+      setLikedTracks(prev => prev.filter(t => t.id !== track.id))
+      tempPlaylist.removeTrack(track.id)
+    }
+
+    recommendationEngine.removeExclusion(track.id)
+  }
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      const topTrack = recommendations[currentIndex]
+      if (!topTrack) return
+      if (e.key === 'ArrowRight') {
+        handleSwipe(topTrack, 'liked')
+      } else if (e.key === 'ArrowLeft') {
+        handleSwipe(topTrack, 'disliked')
+      } else if (e.key === 'ArrowUp') {
+        handleUndo()
+      }
+    }
+
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [recommendations, currentIndex])
 
   const remainingTracks = recommendations.length - currentIndex
 
@@ -151,18 +196,31 @@ export default function Home() {
       {/* Header */}
       <div className="pt-6 pb-4 px-4">
         <div className="max-w-lg mx-auto flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Discover</h1>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-white">Discover</h1>
+            </div>
             <p className="text-white/60 text-sm">
               {remainingTracks} tracks remaining
             </p>
           </div>
-          <button
-            onClick={handleRefresh}
-            className="p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-          >
-            <RotateCcw className="w-5 h-5 text-white" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              className="p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              title="Refresh recommendations and vibe"
+            >
+              <RotateCcw className="w-5 h-5 text-white" />
+            </button>
+            <button
+              onClick={handleUndo}
+              className="p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              title="Undo last swipe"
+              disabled={currentIndex === 0 || undoStack.length === 0}
+            >
+              <Undo2 className="w-5 h-5 text-white" />
+            </button>
+          </div>
         </div>
       </div>
 
