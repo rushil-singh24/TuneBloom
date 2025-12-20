@@ -1,0 +1,335 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Heart, BarChart3, User, Music2, Sparkles, AlertCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { toast } from 'sonner';
+import SpotifyConnect from '@/components/swipe/SpotifyConnect';
+import SwipeDeck from '@/components/swipe/SwipeDeck';
+
+// Mock recommendation data (will be replaced with Spotify API data when backend is enabled)
+const MOCK_TRACKS = [
+  {
+    spotify_track_id: "1",
+    track_name: "Blinding Lights",
+    artist_name: "The Weeknd",
+    album_name: "After Hours",
+    album_art_url: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=500&h=500&fit=crop",
+    preview_url: "https://p.scdn.co/mp3-preview/b5c90c02bff0d9df29b7ed5fd79f6c6efd4e6990",
+    energy: 0.73,
+    danceability: 0.51,
+    valence: 0.34,
+    tempo: 171,
+    genre: "pop"
+  },
+  {
+    spotify_track_id: "2",
+    track_name: "Levitating",
+    artist_name: "Dua Lipa",
+    album_name: "Future Nostalgia",
+    album_art_url: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&h=500&fit=crop",
+    preview_url: "https://p.scdn.co/mp3-preview/c95e1ed0e7f8a7c0cd45e42f85a2c0e2a7777777",
+    energy: 0.83,
+    danceability: 0.70,
+    valence: 0.91,
+    tempo: 103,
+    genre: "dance pop"
+  },
+  {
+    spotify_track_id: "3",
+    track_name: "Heat Waves",
+    artist_name: "Glass Animals",
+    album_name: "Dreamland",
+    album_art_url: "https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=500&h=500&fit=crop",
+    preview_url: null,
+    energy: 0.53,
+    danceability: 0.76,
+    valence: 0.47,
+    tempo: 80,
+    genre: "indie"
+  },
+  {
+    spotify_track_id: "4",
+    track_name: "As It Was",
+    artist_name: "Harry Styles",
+    album_name: "Harry's House",
+    album_art_url: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=500&h=500&fit=crop",
+    preview_url: null,
+    energy: 0.73,
+    danceability: 0.52,
+    valence: 0.66,
+    tempo: 174,
+    genre: "pop"
+  },
+  {
+    spotify_track_id: "5",
+    track_name: "Sunflower",
+    artist_name: "Post Malone",
+    album_name: "Spider-Man Soundtrack",
+    album_art_url: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop",
+    preview_url: null,
+    energy: 0.48,
+    danceability: 0.76,
+    valence: 0.91,
+    tempo: 90,
+    genre: "hip hop"
+  },
+  {
+    spotify_track_id: "6",
+    track_name: "drivers license",
+    artist_name: "Olivia Rodrigo",
+    album_name: "SOUR",
+    album_art_url: "https://images.unsplash.com/photo-1504898770365-14faca6a7320?w=500&h=500&fit=crop",
+    preview_url: null,
+    energy: 0.44,
+    danceability: 0.59,
+    valence: 0.13,
+    tempo: 144,
+    genre: "pop"
+  },
+  {
+    spotify_track_id: "7",
+    track_name: "Peaches",
+    artist_name: "Justin Bieber",
+    album_name: "Justice",
+    album_art_url: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop",
+    preview_url: null,
+    energy: 0.68,
+    danceability: 0.68,
+    valence: 0.67,
+    tempo: 90,
+    genre: "r&b"
+  },
+  {
+    spotify_track_id: "8",
+    track_name: "Montero",
+    artist_name: "Lil Nas X",
+    album_name: "MONTERO",
+    album_art_url: "https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=500&h=500&fit=crop",
+    preview_url: null,
+    energy: 0.61,
+    danceability: 0.74,
+    valence: 0.76,
+    tempo: 179,
+    genre: "pop rap"
+  }
+];
+
+export default function Home() {
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [recommendations, setRecommendations] = useState([]);
+  const [lastSwipe, setLastSwipe] = useState(null);
+  const queryClient = useQueryClient();
+
+  // Fetch user preferences
+  const { data: preferences } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: async () => {
+      const prefs = await base44.entities.UserPreferences.list();
+      return prefs[0] || null;
+    }
+  });
+
+  // Fetch swiped tracks
+  const { data: swipedTracks = [] } = useQuery({
+    queryKey: ['swipedTracks'],
+    queryFn: () => base44.entities.SwipedTrack.list('-created_date')
+  });
+
+  // Create swiped track mutation
+  const swipeMutation = useMutation({
+    mutationFn: (track) => base44.entities.SwipedTrack.create(track),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['swipedTracks'] });
+    }
+  });
+
+  // Check if connected on mount
+  useEffect(() => {
+    if (preferences?.spotify_connected) {
+      setIsConnected(true);
+      loadRecommendations();
+    }
+  }, [preferences]);
+
+  const loadRecommendations = () => {
+    // Filter out already swiped tracks
+    const swipedIds = swipedTracks.map(t => t.spotify_track_id);
+    const newTracks = MOCK_TRACKS.filter(t => !swipedIds.includes(t.spotify_track_id));
+    setRecommendations(newTracks);
+  };
+
+  useEffect(() => {
+    if (isConnected) {
+      loadRecommendations();
+    }
+  }, [isConnected, swipedTracks]);
+
+  const handleConnect = async () => {
+    setIsConnecting(true);
+    
+    // Simulate OAuth flow (will be replaced with real Spotify OAuth when backend is enabled)
+    setTimeout(async () => {
+      try {
+        // Create or update preferences
+        if (preferences) {
+          await base44.entities.UserPreferences.update(preferences.id, {
+            spotify_connected: true,
+            spotify_display_name: "Music Lover",
+            spotify_user_id: "demo_user"
+          });
+        } else {
+          await base44.entities.UserPreferences.create({
+            spotify_connected: true,
+            spotify_display_name: "Music Lover",
+            spotify_user_id: "demo_user"
+          });
+        }
+        
+        setIsConnected(true);
+        queryClient.invalidateQueries({ queryKey: ['preferences'] });
+        toast.success("Connected! Start discovering music 🎵");
+      } catch (error) {
+        toast.error("Connection failed. Please try again.");
+      }
+      setIsConnecting(false);
+    }, 1500);
+  };
+
+  const handleSwipe = useCallback(async (track, action) => {
+    setLastSwipe({ track, action });
+    
+    await swipeMutation.mutateAsync({
+      spotify_track_id: track.spotify_track_id,
+      track_name: track.track_name,
+      artist_name: track.artist_name,
+      album_name: track.album_name,
+      album_art_url: track.album_art_url,
+      preview_url: track.preview_url || "",
+      action: action,
+      danceability: track.danceability,
+      energy: track.energy,
+      valence: track.valence,
+      tempo: track.tempo,
+      genre: track.genre
+    });
+
+    if (action === 'liked') {
+      toast.success(`Added "${track.track_name}" to favorites!`, {
+        icon: '💚'
+      });
+    }
+  }, [swipeMutation]);
+
+  const handleUndo = async () => {
+    if (lastSwipe) {
+      const track = swipedTracks.find(t => t.spotify_track_id === lastSwipe.track.spotify_track_id);
+      if (track) {
+        await base44.entities.SwipedTrack.delete(track.id);
+        queryClient.invalidateQueries({ queryKey: ['swipedTracks'] });
+        toast.info("Undo successful!");
+        setLastSwipe(null);
+      }
+    }
+  };
+
+  const likedCount = swipedTracks.filter(t => t.action === 'liked').length;
+
+  if (!isConnected) {
+    return <SpotifyConnect onConnect={handleConnect} isLoading={isConnecting} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#121212] to-[#1a1a2e]">
+      {/* Header */}
+      <div className="sticky top-0 z-50 bg-black/50 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-lg mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
+              <Music2 className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-white font-bold">SwipeSound</h1>
+              <p className="text-white/40 text-xs">Discover mode</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Link 
+              to={createPageUrl("Favorites")}
+              className="relative p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+            >
+              <Heart className="w-5 h-5 text-white/70" />
+              {likedCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-green-500 text-white text-xs flex items-center justify-center font-bold">
+                  {likedCount}
+                </span>
+              )}
+            </Link>
+            <Link 
+              to={createPageUrl("Analytics")}
+              className="p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+            >
+              <BarChart3 className="w-5 h-5 text-white/70" />
+            </Link>
+            <Link 
+              to={createPageUrl("Profile")}
+              className="p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+            >
+              <User className="w-5 h-5 text-white/70" />
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Backend Notice */}
+      <motion.div 
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-lg mx-auto px-4 pt-4"
+      >
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-amber-200 text-sm font-medium">Demo Mode</p>
+            <p className="text-amber-200/60 text-xs mt-1">
+              Enable backend functions in settings to connect with real Spotify data and get personalized recommendations.
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Swipe Deck */}
+      <div className="max-w-lg mx-auto h-[calc(100vh-180px)]">
+        <SwipeDeck
+          tracks={recommendations}
+          onSwipe={handleSwipe}
+          onUndo={handleUndo}
+          canUndo={!!lastSwipe}
+          onDeckEmpty={() => {
+            // Navigate to favorites when deck is empty
+          }}
+        />
+      </div>
+
+      {/* Swipe Instructions */}
+      <AnimatePresence>
+        {recommendations.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 text-white/30 text-xs"
+          >
+            <span>← Skip</span>
+            <span className="text-white/50">Swipe or tap buttons</span>
+            <span>Like →</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
