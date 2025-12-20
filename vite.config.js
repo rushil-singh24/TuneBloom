@@ -8,5 +8,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src')
     }
+  },
+  server: {
+    host: '127.0.0.1', // Required for Spotify redirect URI
+    port: 5173
   }
 })

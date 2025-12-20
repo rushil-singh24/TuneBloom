@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { motion, useMotionValue, useTransform, useAnimation } from 'framer-motion'
 import { Heart, X, Play, Pause } from 'lucide-react'
 
@@ -12,11 +12,36 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
   const rotate = useTransform(x, [-200, 200], [-25, 25])
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0])
 
+  // Auto-play preview when card becomes top card
+  useEffect(() => {
+    if (isTopCard && track.preview_url && audioRef.current) {
+      // Small delay to ensure card is visible
+      const timer = setTimeout(() => {
+        audioRef.current?.play().catch(error => {
+          console.warn('Auto-play failed:', error)
+        })
+        setIsPlaying(true)
+      }, 300)
+      
+      return () => clearTimeout(timer)
+    } else if (!isTopCard && audioRef.current) {
+      // Pause when card is no longer top
+      audioRef.current.pause()
+      setIsPlaying(false)
+    }
+  }, [isTopCard, track.preview_url])
+
   const handleDragEnd = (event, info) => {
     const threshold = 100
     
     if (Math.abs(info.offset.x) > threshold) {
-      // Swipe detected
+      // Swipe detected - stop audio
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+        setIsPlaying(false)
+      }
+      
       const direction = info.offset.x > 0 ? 'right' : 'left'
       const flyOutDistance = direction === 'right' ? 1000 : -1000
       
@@ -36,6 +61,13 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
   }
 
   const handleButtonSwipe = (action) => {
+    // Stop audio when swiping
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+      setIsPlaying(false)
+    }
+    
     const flyOutDistance = action === 'liked' ? 1000 : -1000
     
     controls.start({
@@ -63,6 +95,18 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
 
   const artists = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist'
   const albumArt = track.album?.images?.[0]?.url || '/placeholder-album.png'
+  const releaseDate = track.album?.release_date || track.release_date || 'Unknown'
+  
+  // Format release date
+  const formatReleaseDate = (date) => {
+    if (!date || date === 'Unknown') return 'Unknown'
+    try {
+      const d = new Date(date)
+      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    } catch {
+      return date
+    }
+  }
 
   return (
     <motion.div
@@ -120,6 +164,9 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
               </p>
               <p className="text-sm text-white/60 mt-1">
                 {track.album?.name}
+              </p>
+              <p className="text-xs text-white/50 mt-1">
+                Released: {formatReleaseDate(releaseDate)}
               </p>
             </div>
 

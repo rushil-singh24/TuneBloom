@@ -37,7 +37,7 @@ export default function App() {
   const hideBottomNav = ["/login", "/callback"].includes(location.pathname)
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
+    <div className={`min-h-screen text-white ${location.pathname === '/login' ? '' : 'bg-[#0a0a0a]'}`}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/callback" element={<Callback />} />

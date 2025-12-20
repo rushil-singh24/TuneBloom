@@ -5,19 +5,40 @@ import { RotateCcw, Sparkles, Music2 } from 'lucide-react'
 import TrackCard from '@/components/discover/TrackCard'
 import { recommendationEngine } from '@/services/recommendationEngine'
 import { spotifyApi } from '@/services/spotifyApi'
+import { getToken } from '@/config/spotify'
+import { tempPlaylist } from '@/utils'
 
 export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [swipedTracks, setSwipedTracks] = useState([])
   const [likedTracks, setLikedTracks] = useState([])
+  const token = getToken()
 
-  // Fetch recommendations
+  // Ensure token is set in spotifyApi before fetching
+  useEffect(() => {
+    if (token && spotifyApi) {
+      spotifyApi.setToken(token)
+      console.log('✅ Token set in spotifyApi from Home component')
+    }
+  }, [token])
+
+  // Fetch recommendations - only if token exists
   const { data: recommendations = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['recommendations'],
+    queryKey: ['recommendations', token],
     queryFn: async () => {
+      // Double-check token is set
+      if (!spotifyApi.token) {
+        const currentToken = getToken()
+        if (currentToken) {
+          spotifyApi.setToken(currentToken)
+        } else {
+          throw new Error('No access token available')
+        }
+      }
       const recs = await recommendationEngine.generateRecommendations(50)
       return recs
     },
+    enabled: !!token, // Only run query if token exists
     staleTime: Infinity, // Don't refetch automatically
     retry: 1
   })
@@ -30,6 +51,7 @@ export default function Home() {
       artists: track.artists,
       album: track.album,
       preview_url: track.preview_url,
+      uri: track.uri,
       action,
       energy: track.audioFeatures?.energy,
       danceability: track.audioFeatures?.danceability,
@@ -44,12 +66,8 @@ export default function Home() {
     if (action === 'liked') {
       setLikedTracks(prev => [...prev, swipedTrack])
       
-      // Add to Spotify library (optional)
-      try {
-        await spotifyApi.saveTracks([track.id])
-      } catch (error) {
-        console.warn('Failed to save track to Spotify:', error)
-      }
+      // Add to temporary playlist instead of directly saving to library
+      tempPlaylist.addTrack(track)
     }
 
     // Exclude from future recommendations

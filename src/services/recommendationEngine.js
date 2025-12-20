@@ -51,6 +51,18 @@ class RecommendationEngine {
       
       // Add top tracks to exclusion list
       topTracks.items.forEach(track => this.excludedTrackIds.add(track.id))
+      
+      // Get recently played tracks to exclude (songs never played before)
+      try {
+        const recentlyPlayed = await spotifyApi.getRecentlyPlayed(50)
+        if (recentlyPlayed.items) {
+          recentlyPlayed.items.forEach(item => {
+            this.excludedTrackIds.add(item.track.id)
+          })
+        }
+      } catch (error) {
+        console.warn('Could not fetch recently played tracks:', error)
+      }
 
       this.userProfile = {
         audioProfile,
