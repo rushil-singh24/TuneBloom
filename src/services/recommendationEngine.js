@@ -10,13 +10,44 @@ class RecommendationEngine {
     this.excludedTrackIds = new Set()
     this.listenedTrackIds = new Set()
     this.listenedArtistIds = new Set()
+    this.persistedExclusions = new Set()
     this.heardTracks = []
+    this.heardTrackFeatures = new Map()
     this.currentUser = null
     this.feedbackProfile = null
     this.vibeShift = 0
     // Use known valid Spotify seed genres
     this.defaultGenres = ['pop', 'rock', 'indie', 'dance', 'edm']
     this.searchFallbackQueries = ['love', 'night', 'summer', 'dream', 'feel', 'wave']
+  }
+
+  loadPersistentExclusions() {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem('tunebloom_excluded_ids')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          this.persistedExclusions = new Set(parsed)
+          parsed.forEach(id => this.excludedTrackIds.add(id))
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load persistent exclusions', err)
+    }
+  }
+
+  savePersistentExclusions(newIds = []) {
+    if (typeof window === 'undefined') return
+    try {
+      newIds.forEach(id => this.persistedExclusions.add(id))
+      // Keep the set bounded to avoid unbounded growth
+      const trimmed = Array.from(this.persistedExclusions).slice(-800)
+      this.persistedExclusions = new Set(trimmed)
+      window.localStorage.setItem('tunebloom_excluded_ids', JSON.stringify(trimmed))
+    } catch (err) {
+      console.warn('Could not save persistent exclusions', err)
+    }
   }
 
   // Calculate average audio features from user's top tracks
@@ -66,6 +97,7 @@ class RecommendationEngine {
       }
     })
 
+    this.ensureHeardSamples(recommendations)
     return this.shuffleArray(recommendations).slice(0, count)
   }
 
@@ -126,12 +158,73 @@ class RecommendationEngine {
     return arr
   }
 
+  getSimilarHeardTracks(track, count = 3) {
+    if (!track || (!track.audioFeatures && this.heardTrackFeatures.size === 0)) {
+      return this.sampleHeardTracks(count)
+    }
+
+    const features = track.audioFeatures
+    const candidates = []
+    const recGenres = new Set(
+      (track.artists || []).flatMap(a => a.genres || []).map(g => g.toLowerCase())
+    )
+    const hasRecGenres = recGenres.size > 0
+
+    this.heardTracks.forEach(ht => {
+      const hf = this.heardTrackFeatures.get(ht.id)
+      if (!hf || !features) return
+
+      // Prefer same primary artist match first
+      const sharesArtist = ht.artists?.some(a => track.artists?.some(ta => ta.id === a.id))
+      const coreDistance = this.calculateSimilarity(hf, features)
+
+      // Penalize tempo gaps to stay in similar vibe
+      const tempoA = hf.tempo
+      const tempoB = features.tempo
+      const tempoPenalty = tempoA && tempoB ? Math.min(1, Math.abs(tempoA - tempoB) / 200) * 0.6 : 0
+
+      // Genre match: reward overlap, penalize none
+      const htGenres = new Set((ht.artists || []).flatMap(a => a.genres || []).map(g => g.toLowerCase()))
+      const overlap = [...recGenres].filter(g => htGenres.has(g))
+      const genrePenalty = hasRecGenres ? (overlap.length ? -0.1 * Math.min(3, overlap.length) : 0.35) : 0
+
+      const score = coreDistance + tempoPenalty + genrePenalty + (sharesArtist ? -0.08 : 0)
+
+      candidates.push({
+        id: ht.id,
+        name: ht.name,
+        artist: ht.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
+        similarity: score
+      })
+    })
+
+    if (!candidates.length) {
+      return this.sampleHeardTracks(count)
+    }
+
+    // Filter to tightest matches first to avoid random far-off picks
+    const sorted = candidates.sort((a, b) => a.similarity - b.similarity)
+    const topTight = sorted.filter(c => c.similarity <= 0.7)
+    const pool = topTight.length >= count ? topTight : sorted
+
+    return pool.slice(0, count).map(({ similarity, ...rest }) => rest)
+  }
+
   buildRecParams({ tracks = [], artists = [], genres = [], limit = 20, ...targets }) {
     const params = { limit, market: 'from_token', ...targets }
     if (tracks.length) params.seed_tracks = tracks.slice(0, 5).join(',')
     if (artists.length) params.seed_artists = artists.slice(0, 5).join(',')
     if (genres.length) params.seed_genres = genres.slice(0, 5).join(',')
     return this.sanitizeParams(params)
+  }
+
+  ensureHeardSamples(tracks = []) {
+    tracks.forEach(track => {
+      if (!track.heardSamples || !track.heardSamples.length) {
+        track.heardSamples = this.sampleHeardTracks(3)
+      }
+    })
+    return tracks
   }
 
   sampleHeardTracks(count = 3) {
@@ -271,6 +364,26 @@ class RecommendationEngine {
     }
   }
 
+  async getRecentlyPlayedTracks(limit = 50) {
+    try {
+      const recentlyPlayed = await spotifyApi.getRecentlyPlayed(limit)
+      return recentlyPlayed.items?.map(item => item.track).filter(Boolean) || []
+    } catch (error) {
+      console.warn('Could not fetch recently played track objects:', error)
+      return []
+    }
+  }
+
+  async getSavedTrackObjects(limit = 50, offset = 0) {
+    try {
+      const saved = await spotifyApi.getSavedTracks(limit, offset)
+      return saved.items?.map(item => item.track).filter(Boolean) || []
+    } catch (error) {
+      console.warn('Could not fetch saved track objects:', error)
+      return []
+    }
+  }
+
   collectArtistIdsFromTracks(tracks = []) {
     tracks.forEach(track => {
       track?.artists?.forEach(artist => {
@@ -279,13 +392,14 @@ class RecommendationEngine {
     })
   }
 
-  async getPlaylistTrackIds(maxPlaylists = 8, maxTracksPerList = 150) {
+  async getPlaylistTrackIds(maxPlaylists = 5, maxTracksPerList = 150, overallCap = 400) {
     const trackIds = []
     try {
       const playlistsResponse = await spotifyApi.getUserPlaylists(maxPlaylists)
       const playlists = playlistsResponse.items || []
 
       for (const playlist of playlists.slice(0, maxPlaylists)) {
+        if (trackIds.length >= overallCap) break
         const limit = 100
         let offset = 0
         while (trackIds.length < maxTracksPerList) {
@@ -300,6 +414,7 @@ class RecommendationEngine {
           })
           if (items.length < limit) break
           offset += items.length
+          if (trackIds.length >= overallCap) break
         }
       }
     } catch (error) {
@@ -316,6 +431,7 @@ class RecommendationEngine {
       this.listenedTrackIds.clear()
       this.listenedArtistIds.clear()
       this.heardTracks = []
+      this.loadPersistentExclusions()
 
       // Fetch user data early so it's ready elsewhere in the app
       try {
@@ -333,14 +449,23 @@ class RecommendationEngine {
       }
 
       if (!topTracks || topTracks.length === 0) {
-        console.warn('No top tracks found, using fallback seeds')
-        topTracks = []
+        console.warn('No top tracks found, using saved tracks as fallback seeds')
+        topTracks = await this.getSavedTrackObjects(50)
       }
-      this.heardTracks = topTracks
+      if (!topTracks || topTracks.length === 0) {
+        console.warn('No saved tracks found, using recently played as fallback seeds')
+        topTracks = await this.getRecentlyPlayedTracks(50)
+      }
+      this.heardTracks = topTracks || []
 
-      // Get audio features for top tracks (chunked to avoid API limits)
-      const trackIds = topTracks.map(t => t.id)
+      // Get audio features for heard tracks (chunked to avoid API limits)
+      const trackIds = this.heardTracks.map(t => t.id)
       const audioFeatures = trackIds.length ? await this.fetchAudioFeatures(trackIds.slice(0, 120)) : []
+      const featureMap = new Map()
+      audioFeatures.forEach(f => {
+        if (f?.id) featureMap.set(f.id, f)
+      })
+      this.heardTrackFeatures = featureMap
 
       // Calculate average profile
       const audioProfile = this.calculateAudioProfile(audioFeatures)
@@ -358,8 +483,8 @@ class RecommendationEngine {
       const savedTrackIds = await this.getAllSavedTrackIds()
       const recentlyPlayedIds = await this.getRecentlyPlayedIds(50)
       const tempLikedIds = tempPlaylist.getTracks().map(t => t.id).filter(Boolean)
-      // Playlist scanning can be slow; skip for speed. Set to [] for now.
-      const playlistTrackIds = []
+      // Include a limited set of playlist tracks to better avoid repeats
+      const playlistTrackIds = await this.getPlaylistTrackIds(5, 150, 400)
 
       this.listenedTrackIds = new Set([
         ...trackIds,
@@ -454,7 +579,7 @@ class RecommendationEngine {
     const recommendations = []
     const seenIds = new Set()
 
-    const seedTracksClean = (seedTracks || []).filter(Boolean).slice(0, 5)
+      const seedTracksClean = (seedTracks || []).filter(Boolean).slice(0, 5)
     const seedArtistsClean = (this.userProfile?.topArtists || []).filter(Boolean).slice(0, 5)
     const seedGenresClean = this.cleanGenres(topGenres?.length ? topGenres : this.defaultGenres, 5)
 
@@ -559,13 +684,20 @@ class RecommendationEngine {
           recommendations.forEach(track => {
             track.audioFeatures = featuresById.get(track.id)
             // Attach heard samples for UI
-            track.heardSamples = this.sampleHeardTracks(3)
+            track.heardSamples = this.getSimilarHeardTracks(track, 3)
             // Drop any preview fields; we don't use previews
             delete track.preview_url
           })
         } catch (err) {
           console.warn('Audio features fetch skipped:', err?.message || err)
         }
+
+        // Ensure heardSamples exist even if features were missing
+        recommendations.forEach(track => {
+          if (!track.heardSamples || !track.heardSamples.length) {
+            track.heardSamples = this.sampleHeardTracks(3)
+          }
+        })
       }
 
       const baseList = recommendations
@@ -614,6 +746,9 @@ class RecommendationEngine {
       // Shuffle before ranking to avoid any stable ordering
       const randomized = this.shuffleArray(recommendations)
 
+      // Ensure similar samples exist for UI
+      this.ensureHeardSamples(randomized)
+
       // Sort by similarity to user profile
       const rankedSource = randomized.length ? randomized : unseenRecommendations
       const sortedRecommendations = this.rankBySimilarity(rankedSource, audioProfile || {})
@@ -624,7 +759,10 @@ class RecommendationEngine {
         return fallback.slice(0, count)
       }
 
-      return sortedRecommendations.slice(0, count)
+      const finalList = sortedRecommendations.slice(0, count)
+      // Persist exclusions so future sessions avoid repeats
+      this.savePersistentExclusions(finalList.map(t => t.id))
+      return finalList
     } catch (error) {
       console.error('Error generating recommendations:', error)
       throw error

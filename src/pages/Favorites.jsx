@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Heart, Play, Pause, Share2, Plus, ListPlus, Trash2, RefreshCw } from 'lucide-react'
@@ -19,6 +19,8 @@ export default function Favorites() {
   const [playingTrackId, setPlayingTrackId] = useState(null)
   const [audioElement, setAudioElement] = useState(null)
   const [playlistName, setPlaylistName] = useState('TuneBloom Likes')
+  const [userEditedName, setUserEditedName] = useState(false)
+  const [selectedTrackIds, setSelectedTrackIds] = useState(() => tempPlaylist.getTracks().map(t => t.id))
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('')
 
   const { data: currentUser } = useQuery({
@@ -37,9 +39,34 @@ export default function Favorites() {
 
   useEffect(() => {
     setTracks(tempPlaylist.getTracks())
+    setSelectedTrackIds(tempPlaylist.getTracks().map(t => t.id))
   }, [])
 
-  const trackUris = tracks.map(track => track.uri || `spotify:track:${track.id}`)
+  const selectedTracks = useMemo(
+    () => tracks.filter(t => selectedTrackIds.includes(t.id)),
+    [tracks, selectedTrackIds]
+  )
+  const trackUris = selectedTracks.map(track => track.uri || `spotify:track:${track.id}`)
+
+  const computeNextTuneBloomName = (lists = []) => {
+    const base = 'TuneBloom Likes'
+    const suffixes = lists
+      .map(p => p.name)
+      .filter(name => name && name.startsWith(base))
+      .map(name => {
+        const match = name.match(/^TuneBloom Likes(?:\\s*(\\d+))?$/)
+        return match && match[1] ? parseInt(match[1], 10) : 1
+      })
+    const nextNum = suffixes.length ? Math.max(...suffixes) + 1 : 1
+    return nextNum === 1 ? base : `${base} ${nextNum}`
+  }
+
+  useEffect(() => {
+    if (!playlists || !playlists.length) return
+    if (userEditedName) return
+    const nextName = computeNextTuneBloomName(playlists)
+    setPlaylistName(nextName)
+  }, [playlists, userEditedName])
 
   const handlePlayPreview = (track) => {
     if (!track.preview_url) return
@@ -84,7 +111,7 @@ export default function Favorites() {
   const createPlaylistMutation = useMutation({
     mutationFn: async () => {
       if (!currentUser) throw new Error('User data not loaded yet')
-      if (!tracks.length) throw new Error('No tracks to add')
+      if (!selectedTracks.length) throw new Error('Select at least one track')
 
       const playlist = await spotifyApi.createPlaylist(
         currentUser.id,
@@ -98,6 +125,10 @@ export default function Favorites() {
     },
     onSuccess: (playlist) => {
       alert(`Playlist created on Spotify: "${playlist.name}"`)
+      // Suggest next name for subsequent creations
+      const nextName = computeNextTuneBloomName([...(playlists || []), playlist])
+      setUserEditedName(false)
+      setPlaylistName(nextName)
     },
     onError: (error) => {
       console.error('Failed to create playlist:', error)
@@ -108,7 +139,7 @@ export default function Favorites() {
   const addToExistingMutation = useMutation({
     mutationFn: async () => {
       if (!selectedPlaylistId) throw new Error('Select a playlist first')
-      if (!tracks.length) throw new Error('No tracks to add')
+      if (!selectedTracks.length) throw new Error('Select at least one track')
 
       await addTracksInChunks(selectedPlaylistId, trackUris)
       return { playlistId: selectedPlaylistId }
@@ -187,7 +218,10 @@ export default function Favorites() {
             </div>
             <input
               value={playlistName}
-              onChange={(e) => setPlaylistName(e.target.value)}
+              onChange={(e) => {
+                setPlaylistName(e.target.value)
+                setUserEditedName(true)
+              }}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white placeholder:text-white/40 mb-3"
               placeholder="Playlist name"
             />
@@ -212,6 +246,13 @@ export default function Favorites() {
               className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white mb-3 disabled:opacity-60"
             >
               <option value="">Select a playlist</option>
+              {playlists
+                .filter(playlist => playlist.name?.startsWith('TuneBloom Likes'))
+                .map((playlist) => (
+                  <option key={playlist.id} value={playlist.id} className="bg-slate-900">
+                    {playlist.name}
+                  </option>
+                ))}
               {playlists.map((playlist) => (
                 <option key={playlist.id} value={playlist.id} className="bg-slate-900">
                   {playlist.name}
@@ -236,6 +277,7 @@ export default function Favorites() {
             const artists = track.artists?.map(a => a.name).join(', ') || 'Unknown'
             const albumArt = track.album?.images?.[1]?.url || track.album?.images?.[0]?.url
             const isPlaying = playingTrackId === track.id
+            const similar = track.heardSamples?.[0]
 
             return (
               <motion.div
@@ -268,6 +310,22 @@ export default function Favorites() {
                     )}
                   </div>
 
+                  {/* Selector */}
+                  <div className="flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedTrackIds.includes(track.id)}
+                      onChange={() => {
+                        setSelectedTrackIds(prev =>
+                          prev.includes(track.id)
+                            ? prev.filter(id => id !== track.id)
+                            : [...prev, track.id]
+                        )
+                      }}
+                      className="w-5 h-5 accent-green-500 cursor-pointer"
+                    />
+                  </div>
+
                   {/* Track Info */}
                   <div className="flex-1 min-w-0">
                     <h3 className="text-white font-semibold truncate">
@@ -279,6 +337,11 @@ export default function Favorites() {
                     <p className="text-white/40 text-xs truncate mt-0.5">
                       {track.album?.name}
                     </p>
+                    {similar && (
+                      <p className="text-white/50 text-xs truncate mt-1">
+                        Similar to: {similar.name} — {similar.artist}
+                      </p>
+                    )}
                   </div>
 
                   {/* Actions */}

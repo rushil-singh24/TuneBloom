@@ -15,6 +15,7 @@ export default function Home() {
   const [feedbackVersion, setFeedbackVersion] = useState(0)
   const [vibeShift, setVibeShift] = useState(0)
   const [undoStack, setUndoStack] = useState([]) // stack of { track, action }
+  const [queuedSwipe, setQueuedSwipe] = useState(null) // { trackId, action, token }
   const token = getToken()
 
   // Ensure token is set in spotifyApi before fetching
@@ -115,9 +116,9 @@ export default function Home() {
       const topTrack = recommendations[currentIndex]
       if (!topTrack) return
       if (e.key === 'ArrowRight') {
-        handleSwipe(topTrack, 'liked')
+        setQueuedSwipe({ trackId: topTrack.id, action: 'liked', token: Date.now() })
       } else if (e.key === 'ArrowLeft') {
-        handleSwipe(topTrack, 'disliked')
+        setQueuedSwipe({ trackId: topTrack.id, action: 'disliked', token: Date.now() })
       } else if (e.key === 'ArrowUp') {
         handleUndo()
       }
@@ -241,6 +242,8 @@ export default function Home() {
                   track={track}
                   onSwipe={handleSwipe}
                   isTopCard={index === 0}
+                  queuedSwipe={queuedSwipe}
+                  onQueuedSwipeConsumed={() => setQueuedSwipe(null)}
                 />
               </div>
             ))}

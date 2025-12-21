@@ -1,60 +1,27 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { motion, useMotionValue, useTransform, useAnimation } from 'framer-motion'
-import { Heart, X, ArrowRight, ArrowLeft } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Heart, X as XIcon } from 'lucide-react'
 
-export default function TrackCard({ track, onSwipe, isTopCard }) {
+export default function TrackCard({ track, onSwipe, isTopCard, queuedSwipe, onQueuedSwipeConsumed }) {
   const x = useMotionValue(0)
   const controls = useAnimation()
-  
-  // Transform x position to rotation
+  const isAnimating = useRef(false)
+  const [indicator, setIndicator] = useState(null) // 'liked' | 'disliked' | null
+  const indicatorTimer = useRef(null)
+
   const rotate = useTransform(x, [-200, 200], [-25, 25])
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0])
-  const likePulse = useTransform(x, [80, 200], [0, 1])
-  const skipPulse = useTransform(x, [-200, -80], [1, 0])
-
-  const performSwipe = (action) => {
-    const isLike = action === 'liked'
-    const flyOutDistance = isLike ? 1200 : -1200
-    const pulseKick = isLike ? 180 : -180
-    x.set(pulseKick)
-
-    controls.start({
-      x: flyOutDistance,
-      opacity: 0,
-      transition: { duration: 0.35, ease: 'easeIn' }
-    }).then(() => {
-      onSwipe(track, action)
-    })
-  }
-
-  const handleDragEnd = (event, info) => {
-    const threshold = 100
-    if (Math.abs(info.offset.x) > threshold) {
-      const direction = info.offset.x > 0 ? 'liked' : 'disliked'
-      performSwipe(direction)
-    } else {
-      controls.start({
-        x: 0,
-        transition: { type: 'spring', stiffness: 300, damping: 30 }
-      })
-    }
-  }
-
-  const handleButtonSwipe = (action) => {
-    performSwipe(action)
-  }
-
-  const handleImageClick = (e) => {
-    e.stopPropagation()
-  }
+  const likeOpacity = useTransform(x, [0, 120], [0, 1])
+  const likeScale = useTransform(x, [0, 120], [0.6, 1])
+  const dislikeOpacity = useTransform(x, [-120, 0], [1, 0])
+  const dislikeScale = useTransform(x, [-120, 0], [1, 0.6])
 
   if (!track) return null
 
   const artists = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist'
   const albumArt = track.album?.images?.[0]?.url || '/placeholder-album.png'
   const releaseDate = track.album?.release_date || track.release_date || 'Unknown'
-  
-  // Format release date
+
   const formatReleaseDate = (date) => {
     if (!date || date === 'Unknown') return 'Unknown'
     try {
@@ -65,9 +32,53 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
     }
   }
 
+  const performSwipe = (action) => {
+    if (isAnimating.current) return
+    isAnimating.current = true
+    setIndicator(action)
+    if (indicatorTimer.current) clearTimeout(indicatorTimer.current)
+    indicatorTimer.current = setTimeout(() => setIndicator(null), 800)
+
+    const isLike = action === 'liked'
+    const flyOutDistance = isLike ? 1000 : -1000
+
+    controls.start({
+      x: flyOutDistance,
+      opacity: 0,
+      transition: { duration: 0.5 }
+    }).then(() => {
+      onSwipe(track, action)
+      controls.set({ x: 0, opacity: 1 })
+      isAnimating.current = false
+      if (onQueuedSwipeConsumed) onQueuedSwipeConsumed()
+    })
+  }
+
+  const handleDragEnd = (event, info) => {
+    const threshold = 100
+    if (Math.abs(info.offset.x) > threshold) {
+      const direction = info.offset.x > 0 ? 'liked' : 'disliked'
+      performSwipe(direction)
+    } else {
+      controls.start({ x: 0, transition: { type: 'spring', stiffness: 300, damping: 30 } })
+    }
+  }
+
+  const similar = track.heardSamples?.[0]
+
+  useEffect(() => {
+    if (!isTopCard || !queuedSwipe) return
+    if (queuedSwipe.trackId !== track.id) return
+    performSwipe(queuedSwipe.action)
+  }, [queuedSwipe, isTopCard, track?.id])
+
+  useEffect(() => () => {
+    if (indicatorTimer.current) clearTimeout(indicatorTimer.current)
+  }, [])
+
   return (
     <motion.div
-      className="absolute w-full h-full px-4"
+      className="absolute w-full h-full"
       style={{ x, rotate, opacity }}
       drag={isTopCard ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
@@ -76,126 +87,104 @@ export default function TrackCard({ track, onSwipe, isTopCard }) {
       initial={{ scale: isTopCard ? 1 : 0.95 }}
       whileTap={{ cursor: 'grabbing' }}
     >
-      <div className="relative w-full h-full bg-[#0f0f0f] rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col">
-        <div className="flex flex-col h-full p-5 pb-10 gap-5">
-          {/* Album Art */}
-          <div className="flex-1 min-h-0 flex items-center justify-center">
-            <div className="relative w-full max-w-[320px] sm:max-w-[340px] md:max-w-[360px]">
-              <img
-                src={albumArt}
-                alt={track.name}
-                className={`w-full aspect-square max-h-[340px] object-cover rounded-2xl shadow-xl ${track.preview_url ? 'cursor-pointer' : ''}`}
-                onClick={handleImageClick}
-              />
-            </div>
-          </div>
+      <div className="relative w-full h-full bg-gradient-to-br from-purple-900/20 to-pink-900/20 rounded-3xl overflow-hidden shadow-2xl border border-white/10 backdrop-blur-sm">
+        {/* Album Art Background */}
+        <div className="absolute inset-0">
+          <img
+            src={albumArt}
+            alt={track.name}
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/65 to-transparent" />
+        </div>
 
-          {/* Track Info */}
-          <div className="space-y-2 text-center">
-            <h2 className="text-2xl font-bold text-white line-clamp-2">
-              {track.name}
-            </h2>
-            <p className="text-white/80 text-base line-clamp-1">
-              {artists}
-            </p>
-            <p className="text-white/60 text-sm line-clamp-1">
-              {track.album?.name}
-            </p>
-            <p className="text-white/50 text-xs">
-              Released • {formatReleaseDate(releaseDate)}
-            </p>
-            {track.heardSamples?.length > 0 && (
-              <div className="mt-3 bg-white/5 border border-white/10 rounded-2xl p-3">
-                <p className="text-white/70 text-xs uppercase tracking-wide mb-2">Similar to your taste</p>
-                <div className="space-y-1">
-                  {track.heardSamples.slice(0, 3).map(sample => (
-                    <div key={sample.id} className="flex flex-col">
-                      <span className="text-sm text-white truncate">{sample.name}</span>
-                      <span className="text-xs text-white/60 truncate">{sample.artist}</span>
-                    </div>
-                  ))}
+        {/* Content */}
+        <div className="relative h-full flex flex-col justify-between p-6">
+          {/* Placeholder top spacing */}
+          <div className="flex justify-end" />
+
+          {/* Bottom: Track Info */}
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-3xl font-bold text-white mb-2 line-clamp-2">{track.name}</h2>
+              <p className="text-lg text-white/90 line-clamp-1">{artists}</p>
+              <p className="text-sm text-white/80 mt-1">{track.album?.name}</p>
+              <p className="text-xs text-white/70 mt-1">Released: {formatReleaseDate(releaseDate)}</p>
+            </div>
+
+            {track.audioFeatures && (
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                <div className="bg-black/30 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/5">
+                  <p className="text-xs text-white/70">Energy</p>
+                  <p className="text-sm font-semibold text-white">{Math.round(track.audioFeatures.energy * 100)}%</p>
+                </div>
+                <div className="bg-black/30 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/5">
+                  <p className="text-xs text-white/70">Dance</p>
+                  <p className="text-sm font-semibold text-white">{Math.round(track.audioFeatures.danceability * 100)}%</p>
+                </div>
+                <div className="bg-black/30 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/5">
+                  <p className="text-xs text-white/70">Mood</p>
+                  <p className="text-sm font-semibold text-white">{Math.round(track.audioFeatures.valence * 100)}%</p>
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Controls */}
-          {isTopCard && (
-            <div className="mt-3 mb-2 flex items-center justify-center gap-5">
+            <div
+              className="flex justify-center gap-6 mt-6"
+              style={{ pointerEvents: isTopCard ? 'auto' : 'none' }}
+            >
               <button
-                onClick={() => handleButtonSwipe('disliked')}
-                className="w-14 h-14 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center border border-white/10 transition-all hover:scale-105 active:scale-95"
+                onClick={() => performSwipe('disliked')}
+                className="w-16 h-16 rounded-full bg-red-500/90 hover:bg-red-500 flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
                 aria-label="Skip"
                 title="Skip track"
               >
-                <ArrowLeft className="w-7 h-7 text-white" strokeWidth={2.5} />
+                <ArrowLeft className="w-8 h-8 text-white" strokeWidth={3} />
               </button>
-
               <button
-                onClick={() => handleButtonSwipe('liked')}
-                className="w-14 h-14 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95"
+                onClick={() => performSwipe('liked')}
+                className="w-16 h-16 rounded-full bg-green-500/90 hover:bg-green-500 flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
                 aria-label="Like"
                 title="Like track"
               >
-                <ArrowRight className="w-7 h-7 text-white" strokeWidth={2} />
+                <ArrowRight className="w-8 h-8 text-white" strokeWidth={2} />
               </button>
             </div>
-          )}
+
+            {similar && (
+              <div className="mt-4 text-left px-3 py-2 bg-black/40 rounded-xl border border-white/10">
+                <p className="text-xs text-slate-200/80 mb-1">Similar to your taste</p>
+                <p className="text-sm font-semibold text-slate-50 truncate">{similar.name}</p>
+                <p className="text-xs text-slate-200/70 truncate">{similar.artist}</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Swipe Indicators */}
         <motion.div
-          className="absolute top-8 left-4"
-          style={{ 
-            opacity: useTransform(x, [0, 100], [0, 1]),
-            scale: useTransform(x, [0, 100], [0.5, 1])
+          className="absolute top-8 left-8"
+          style={{
+            opacity: indicator === 'liked' ? 1 : likeOpacity,
+            scale: indicator === 'liked' ? 1 : likeScale
           }}
         >
-          <motion.div
-            className="px-6 py-3 bg-red-500 rounded-2xl rotate-12 border-4 border-white shadow-xl flex items-center gap-2"
-            animate={{ scale: 1 }}
-          >
-            <Heart className="w-6 h-6 text-white" fill="white" />
-            <span className="text-2xl font-black text-white">LIKE</span>
-          </motion.div>
-        </motion.div>
-
-        <motion.div
-          className="absolute top-8 right-4"
-          style={{ 
-            opacity: useTransform(x, [-100, 0], [1, 0]),
-            scale: useTransform(x, [-100, 0], [1, 0.5])
-          }}
-        >
-          <motion.div
-            className="px-6 py-3 bg-red-500 rounded-2xl -rotate-12 border-4 border-white shadow-xl flex items-center gap-2"
-            animate={{ scale: 1 }}
-          >
-            <X className="w-6 h-6 text-white" />
-            <span className="text-2xl font-black text-white">SKIP</span>
-          </motion.div>
-        </motion.div>
-
-        {/* Pulse overlay for drag feedback */}
-        <motion.div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none"
-          style={{ opacity: likePulse }}
-        >
-          <div className="flex items-center gap-2 px-5 py-3 bg-green-500/20 border border-green-400/50 rounded-full backdrop-blur-md">
-            <Heart className="w-6 h-6 text-green-200" fill="currentColor" />
-            <span className="text-green-100 font-semibold">Keep it</span>
-          </div>
-        </motion.div>
-        <motion.div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none"
-          style={{ opacity: skipPulse }}
-        >
-          <div className="flex items-center gap-2 px-5 py-3 bg-red-500/20 border border-red-400/50 rounded-full backdrop-blur-md">
-            <X className="w-6 h-6 text-red-200" />
-            <span className="text-red-100 font-semibold">Skip</span>
+          <div className="px-4 py-3 bg-green-600/90 rounded-2xl rotate-12 border-4 border-white shadow-xl flex items-center justify-center">
+            <Heart className="w-10 h-10 text-white" strokeWidth={2.5} />
           </div>
         </motion.div>
 
+        <motion.div
+          className="absolute top-8 right-8"
+          style={{
+            opacity: indicator === 'disliked' ? 1 : dislikeOpacity,
+            scale: indicator === 'disliked' ? 1 : dislikeScale
+          }}
+        >
+          <div className="px-4 py-3 bg-red-600/90 rounded-2xl -rotate-12 border-4 border-white shadow-xl flex items-center justify-center">
+            <XIcon className="w-10 h-10 text-white" strokeWidth={2.5} />
+          </div>
+        </motion.div>
       </div>
     </motion.div>
   )
