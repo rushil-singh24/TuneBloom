@@ -2,6 +2,7 @@
 // Content-based filtering for music recommendations
 
 import { spotifyApi } from './spotifyApi'
+import { dbService } from './supabaseClient'
 import { tempPlaylist } from '../utils'
 
 class RecommendationEngine {
@@ -14,6 +15,7 @@ class RecommendationEngine {
     this.heardTracks = []
     this.heardTrackFeatures = new Map()
     this.currentUser = null
+    this.currentUserId = null
     this.feedbackProfile = null
     this.vibeShift = 0
     // Use known valid Spotify seed genres
@@ -351,6 +353,18 @@ class RecommendationEngine {
       }
     }
 
+    // Merge in db-side exclusions if present
+    if (this.currentUserId) {
+      try {
+        const dbExcluded = await this.loadExcludedTracksFromDB()
+        if (Array.isArray(dbExcluded)) {
+          dbExcluded.forEach(id => ids.push(id))
+        }
+      } catch (err) {
+        console.warn('Could not merge db exclusions into saved ids:', err?.message || err)
+      }
+    }
+
     return ids
   }
 
@@ -436,8 +450,18 @@ class RecommendationEngine {
       // Fetch user data early so it's ready elsewhere in the app
       try {
         this.currentUser = await spotifyApi.getCurrentUser()
+        if (this.currentUser?.id) {
+          this.currentUserId = this.currentUser.id
+        }
       } catch (error) {
         console.warn('Unable to fetch current user during profile build:', error)
+      }
+
+      // Load server-side exclusions if available
+      try {
+        await this.loadExcludedTracksFromDB()
+      } catch (error) {
+        console.warn('Unable to load excluded tracks from db:', error)
       }
 
       // Get user's top tracks across ranges
@@ -485,6 +509,24 @@ class RecommendationEngine {
       const tempLikedIds = tempPlaylist.getTracks().map(t => t.id).filter(Boolean)
       // Include a limited set of playlist tracks to better avoid repeats
       const playlistTrackIds = await this.getPlaylistTrackIds(5, 150, 400)
+
+      // Persist known-listened tracks to db exclusions (best effort)
+      if (this.currentUserId) {
+        const toPersist = [
+          { ids: savedTrackIds, reason: 'in_library' },
+          { ids: recentlyPlayedIds, reason: 'recently_played' },
+          { ids: playlistTrackIds, reason: 'in_library' }
+        ]
+        for (const batch of toPersist) {
+          if (batch.ids.length) {
+            try {
+              await this.saveExcludedTracksToDB(batch.ids, batch.reason)
+            } catch (err) {
+              console.warn('Failed to persist exclusions batch:', err?.message || err)
+            }
+          }
+        }
+      }
 
       this.listenedTrackIds = new Set([
         ...trackIds,
@@ -761,7 +803,11 @@ class RecommendationEngine {
 
       const finalList = sortedRecommendations.slice(0, count)
       // Persist exclusions so future sessions avoid repeats
-      this.savePersistentExclusions(finalList.map(t => t.id))
+      const finalIds = finalList.map(t => t.id)
+      this.savePersistentExclusions(finalIds)
+      if (this.currentUserId && finalIds.length) {
+        this.saveExcludedTracksToDB(finalIds, 'served').catch(() => {})
+      }
       return finalList
     } catch (error) {
       console.error('Error generating recommendations:', error)
@@ -805,6 +851,9 @@ class RecommendationEngine {
   excludeTrack(trackId) {
     this.excludedTrackIds.add(trackId)
     this.listenedTrackIds.add(trackId)
+    if (this.currentUserId) {
+      this.saveExcludedTracksToDB([trackId], 'swiped').catch(() => {})
+    }
   }
 
   removeExclusion(trackId) {
@@ -819,6 +868,7 @@ class RecommendationEngine {
     this.listenedTrackIds.clear()
     this.listenedArtistIds.clear()
     this.currentUser = null
+    this.currentUserId = null
     this.feedbackProfile = null
     this.vibeShift = 0
   }
