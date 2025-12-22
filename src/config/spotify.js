@@ -39,10 +39,19 @@ export const generateState = () => {
   return state
 }
 
+const resolveRedirectUri = () => {
+  // Prefer explicit env; otherwise derive from current origin to avoid localhost fallback in production
+  if (import.meta.env.VITE_REDIRECT_URI) return import.meta.env.VITE_REDIRECT_URI
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/callback`
+  }
+  return 'http://127.0.0.1:5173/callback'
+}
+
 export const spotifyConfig = {
-  // Try to read from .env, but fallback to hardcoded value
+  // Try to read from .env, but fallback to derived origin (not hardcoded localhost in prod)
   clientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || '6fe7b7e4dddb40ff95bb6f6df02e6e3d',
-  redirectUri: import.meta.env.VITE_REDIRECT_URI || 'http://127.0.0.1:5173/callback',
+  redirectUri: resolveRedirectUri(),
   authEndpoint: 'https://accounts.spotify.com/authorize',
 
   scopes: [
