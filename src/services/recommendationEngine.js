@@ -39,6 +39,33 @@ class RecommendationEngine {
     }
   }
 
+  async loadExcludedTracksFromDB() {
+    if (!this.currentUserId) return []
+    
+    try {
+      const excludedIds = await dbService.getExcludedTrackIds(this.currentUserId)
+      if (Array.isArray(excludedIds)) {
+        excludedIds.forEach(id => this.excludedTrackIds.add(id))
+        console.log(`✅ Loaded ${excludedIds.length} excluded tracks from database`)
+        return excludedIds
+      }
+    } catch (error) {
+      console.warn('Could not load excluded tracks:', error)
+    }
+    return []
+  }
+
+  async saveExcludedTracksToDB(trackIds, reason = 'swiped') {
+    if (!this.currentUserId) return
+    if (!Array.isArray(trackIds) || trackIds.length === 0) return
+    if (!dbService || typeof dbService.addBulkExcludedTracks !== 'function') return
+    try {
+      await dbService.addBulkExcludedTracks(this.currentUserId, trackIds, reason)
+    } catch (err) {
+      console.warn('Could not save excluded tracks:', err?.message || err)
+    }
+  }
+
   savePersistentExclusions(newIds = []) {
     if (typeof window === 'undefined') return
     try {
@@ -50,6 +77,12 @@ class RecommendationEngine {
     } catch (err) {
       console.warn('Could not save persistent exclusions', err)
     }
+  }
+
+  isTrackExcluded(id) {
+    // Safety valve: if exclusions explode, loosen the filter to keep cards flowing
+    if (this.excludedTrackIds.size > 4000) return false
+    return this.excludedTrackIds.has(id)
   }
 
   // Calculate average audio features from user's top tracks
@@ -68,7 +101,7 @@ class RecommendationEngine {
     return profile
   }
 
-  async getFallbackRecommendations(count = 50) {
+  async getFallbackRecommendations(count = 50, { ignoreExclusions = false } = {}) {
     const recommendations = []
     const seen = new Set()
     const batches = [
@@ -80,7 +113,8 @@ class RecommendationEngine {
       try {
         const response = await spotifyApi.getRecommendations(params)
         response.tracks?.forEach(track => {
-          if (!seen.has(track.id) && !this.excludedTrackIds.has(track.id) && this.isAllowedTrack(track)) {
+          const blocked = !ignoreExclusions && this.isTrackExcluded(track.id)
+          if (!seen.has(track.id) && !blocked && this.isAllowedTrack(track)) {
             seen.add(track.id)
             recommendations.push(track)
           }
@@ -91,9 +125,10 @@ class RecommendationEngine {
     }
 
     // Always add search-based fallback to guarantee results
-    const searchTracks = await this.getSearchFallbackTracks(count * 2)
+    const searchTracks = await this.getSearchFallbackTracks(count * 2, ignoreExclusions)
     searchTracks.forEach(track => {
-      if (!seen.has(track.id) && !this.excludedTrackIds.has(track.id) && this.isAllowedTrack(track)) {
+      const blocked = !ignoreExclusions && this.isTrackExcluded(track.id)
+      if (!seen.has(track.id) && !blocked && this.isAllowedTrack(track)) {
         seen.add(track.id)
         recommendations.push(track)
       }
@@ -103,21 +138,22 @@ class RecommendationEngine {
     return this.shuffleArray(recommendations).slice(0, count)
   }
 
-  async getSearchFallbackTracks(count = 50) {
+  async getSearchFallbackTracks(count = 50, ignoreExclusions = false) {
     const tracks = []
     const seen = new Set()
     for (const query of this.searchFallbackQueries) {
       try {
-        const response = await spotifyApi.searchTracks(query, 25)
-        response.tracks?.items?.forEach(track => {
-          if (!seen.has(track.id)) {
-            seen.add(track.id)
-            tracks.push(track)
-          }
-        })
-      } catch (error) {
-        console.warn('Search fallback failed:', error.message)
-      }
+          const response = await spotifyApi.searchTracks(query, 25)
+          response.tracks?.items?.forEach(track => {
+            const blocked = !ignoreExclusions && this.isTrackExcluded(track.id)
+            if (!seen.has(track.id) && !blocked) {
+              seen.add(track.id)
+              tracks.push(track)
+            }
+          })
+        } catch (error) {
+          console.warn('Search fallback failed:', error.message)
+        }
       if (tracks.length >= count) break
     }
     return tracks.slice(0, count)
@@ -353,18 +389,6 @@ class RecommendationEngine {
       }
     }
 
-    // Merge in db-side exclusions if present
-    if (this.currentUserId) {
-      try {
-        const dbExcluded = await this.loadExcludedTracksFromDB()
-        if (Array.isArray(dbExcluded)) {
-          dbExcluded.forEach(id => ids.push(id))
-        }
-      } catch (err) {
-        console.warn('Could not merge db exclusions into saved ids:', err?.message || err)
-      }
-    }
-
     return ids
   }
 
@@ -462,6 +486,12 @@ class RecommendationEngine {
         await this.loadExcludedTracksFromDB()
       } catch (error) {
         console.warn('Unable to load excluded tracks from db:', error)
+      }
+
+      // Safety: if exclusions balloon, clear them to keep recommendations flowing
+      if (this.excludedTrackIds.size > 5000) {
+        console.warn('Exclusion set too large; clearing to restore recommendations')
+        this.excludedTrackIds.clear()
       }
 
       // Get user's top tracks across ranges
@@ -683,7 +713,7 @@ class RecommendationEngine {
 
       if (!batches.length) {
         console.warn('No valid seeds available for recommendations; returning fallback list')
-        const fallback = await this.getFallbackRecommendations(count)
+        const fallback = await this.getFallbackRecommendations(count, { ignoreExclusions: true })
         return fallback
       }
 
@@ -695,11 +725,8 @@ class RecommendationEngine {
           if (response.tracks) {
             response.tracks.forEach(track => {
               // Filter out duplicates, excluded tracks, and enforce unheard artists
-              if (
-                !seenIds.has(track.id) &&
-                !this.excludedTrackIds.has(track.id) &&
-                this.isAllowedTrack(track)
-              ) {
+              const blocked = this.isTrackExcluded(track.id)
+              if (!seenIds.has(track.id) && !blocked && this.isAllowedTrack(track)) {
                 seenIds.add(track.id)
                 recommendations.push(track)
               }
@@ -746,7 +773,7 @@ class RecommendationEngine {
 
       // Remove any track that slips through from the user's listening history
       const unseenRecommendations = baseList.filter(
-        track => !this.listenedTrackIds.has(track.id) && this.isAllowedTrack(track)
+        track => !this.isTrackExcluded(track.id) && !this.listenedTrackIds.has(track.id) && this.isAllowedTrack(track)
       )
 
       // If almost everything was excluded, relax to allow seen tracks so UI still shows cards
@@ -765,7 +792,7 @@ class RecommendationEngine {
 
       // If primary batches failed to deliver, fetch fallback to guarantee cards
       if (workingList.length < count / 2 || workingList.length === 0) {
-        const fallback = await this.getFallbackRecommendations(count)
+        const fallback = await this.getFallbackRecommendations(count, { ignoreExclusions: workingList.length === 0 })
         const merged = [...workingList]
         const seenIdsMerged = new Set(merged.map(t => t.id))
         fallback.forEach(track => {
@@ -779,7 +806,12 @@ class RecommendationEngine {
           }
         })
         recommendations.length = 0
-        recommendations.push(...merged)
+        if (merged.length === 0) {
+          // Last resort: use fallback even if it includes previously seen tracks
+          recommendations.push(...fallback.slice(0, count))
+        } else {
+          recommendations.push(...merged)
+        }
       } else {
         recommendations.length = 0
         recommendations.push(...workingList)
@@ -797,7 +829,7 @@ class RecommendationEngine {
 
       if (sortedRecommendations.length === 0) {
         console.warn('No recommendations after filtering; using fallback set')
-        const fallback = await this.getFallbackRecommendations(count)
+        const fallback = await this.getFallbackRecommendations(count, { ignoreExclusions: true })
         return fallback.slice(0, count)
       }
 

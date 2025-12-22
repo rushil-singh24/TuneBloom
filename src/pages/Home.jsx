@@ -6,7 +6,7 @@ import TrackCard from '@/components/discover/TrackCard'
 import { recommendationEngine } from '@/services/recommendationEngine'
 import { spotifyApi } from '@/services/spotifyApi'
 import { getToken } from '@/config/spotify'
-import { tempPlaylist } from '@/utils'
+import { tempPlaylist, tempDislikes } from '@/utils'
 
 export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -73,9 +73,9 @@ export default function Home() {
     
     if (action === 'liked') {
       setLikedTracks(prev => [...prev, swipedTrack])
-      
-      // Add to temporary playlist instead of directly saving to library
       tempPlaylist.addTrack(track)
+    } else if (action === 'disliked') {
+      tempDislikes.addTrack(track)
     }
 
     // Exclude from future recommendations
@@ -106,6 +106,8 @@ export default function Home() {
     if (action === 'liked') {
       setLikedTracks(prev => prev.filter(t => t.id !== track.id))
       tempPlaylist.removeTrack(track.id)
+    } else if (action === 'disliked') {
+      tempDislikes.removeTrack(track.id)
     }
 
     recommendationEngine.removeExclusion(track.id)

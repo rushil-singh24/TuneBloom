@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Heart, Play, Pause, Share2, Plus, ListPlus, Trash2, RefreshCw } from 'lucide-react'
 import { spotifyApi } from '@/services/spotifyApi'
-import { tempPlaylist } from '@/utils'
+import { tempPlaylist, tempDislikes } from '@/utils'
 
 const addTracksInChunks = async (playlistId, uris) => {
   const uniqueUris = Array.from(new Set(uris))
@@ -16,12 +16,14 @@ const addTracksInChunks = async (playlistId, uris) => {
 
 export default function Favorites() {
   const [tracks, setTracks] = useState(() => tempPlaylist.getTracks())
+  const [dislikedTracks, setDislikedTracks] = useState(() => tempDislikes.getTracks())
   const [playingTrackId, setPlayingTrackId] = useState(null)
   const [audioElement, setAudioElement] = useState(null)
   const [playlistName, setPlaylistName] = useState('TuneBloom Likes')
   const [userEditedName, setUserEditedName] = useState(false)
   const [selectedTrackIds, setSelectedTrackIds] = useState(() => tempPlaylist.getTracks().map(t => t.id))
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('')
+  const [showDislikes, setShowDislikes] = useState(false)
 
   const { data: currentUser } = useQuery({
     queryKey: ['currentUser'],
@@ -40,6 +42,7 @@ export default function Favorites() {
   useEffect(() => {
     setTracks(tempPlaylist.getTracks())
     setSelectedTrackIds(tempPlaylist.getTracks().map(t => t.id))
+    setDislikedTracks(tempDislikes.getTracks())
   }, [])
 
   const selectedTracks = useMemo(
@@ -97,13 +100,28 @@ export default function Favorites() {
     setTracks(tempPlaylist.removeTrack(trackId))
   }
 
+  const handleRemoveDislike = (trackId) => {
+    setDislikedTracks(tempDislikes.removeTrack(trackId))
+  }
+
+  const handleMoveDislikeToLikes = (track) => {
+    tempPlaylist.addTrack(track)
+    tempDislikes.removeTrack(track.id)
+    setTracks(tempPlaylist.getTracks())
+    setDislikedTracks(tempDislikes.getTracks())
+    setSelectedTrackIds(prev => prev.includes(track.id) ? prev : [...prev, track.id])
+  }
+
   const handleRefreshTemp = () => {
     setTracks(tempPlaylist.getTracks())
+    setDislikedTracks(tempDislikes.getTracks())
   }
 
   const clearAll = () => {
     tempPlaylist.clear()
+    tempDislikes.clear()
     setTracks([])
+    setDislikedTracks([])
     audioElement?.pause()
     setPlayingTrackId(null)
   }
@@ -267,6 +285,85 @@ export default function Favorites() {
               {addToExistingMutation.isLoading ? 'Adding...' : 'Add tracks'}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Disliked Tracks */}
+      <div className="max-w-4xl mx-auto px-4 py-4">
+        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-white font-semibold">Disliked tracks</span>
+              <span className="text-white/60 text-sm">({dislikedTracks.length})</span>
+            </div>
+            <button
+              onClick={() => setShowDislikes(v => !v)}
+              className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 text-white/80 text-sm transition-colors"
+            >
+              {showDislikes ? 'Hide' : 'Show'}
+            </button>
+          </div>
+
+          {showDislikes && (
+            <div className="mt-4 space-y-3">
+              {dislikedTracks.length === 0 ? (
+                <p className="text-white/50 text-sm">No disliked tracks yet.</p>
+              ) : (
+                dislikedTracks.map((track, index) => {
+                  const artists = track.artists?.map(a => a.name).join(', ') || 'Unknown'
+                  const albumArt = track.album?.images?.[1]?.url || track.album?.images?.[0]?.url
+
+                  return (
+                    <motion.div
+                      key={`${track.id}-${index}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="group bg-white/5 hover:bg-white/10 rounded-xl p-4 transition-all border border-white/5 hover:border-white/10"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="relative flex-shrink-0">
+                          <img
+                            src={albumArt}
+                            alt={track.name}
+                            className="w-16 h-16 rounded-lg object-cover"
+                          />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-semibold truncate">
+                            {track.name}
+                          </h3>
+                          <p className="text-white/60 text-sm truncate">
+                            {artists}
+                          </p>
+                          <p className="text-white/40 text-xs truncate mt-0.5">
+                            {track.album?.name}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleMoveDislikeToLikes(track)}
+                            className="p-2 rounded-full hover:bg-green-500/10 transition-colors"
+                            title="Move to Likes"
+                          >
+                            <Heart className="w-5 h-5 text-green-400" fill="currentColor" />
+                          </button>
+                          <button
+                            onClick={() => handleRemoveDislike(track.id)}
+                            className="p-2 rounded-full hover:bg-red-500/10 transition-colors"
+                            title="Remove from Dislikes"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-300" />
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )
+                })
+              )}
+            </div>
+          )}
         </div>
       </div>
 

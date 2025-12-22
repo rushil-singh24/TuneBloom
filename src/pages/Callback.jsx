@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { getCodeFromUrl, exchangeCodeForToken, setToken, verifyState, getToken } from "@/config/spotify"
 import { spotifyApi } from "@/services/spotifyApi"
+import { supabase, dbService } from '@/services/supabaseClient'
 
 export default function Callback() {
   const navigate = useNavigate()
@@ -123,6 +124,32 @@ export default function Callback() {
           sessionStorage.setItem('spotify_current_user', JSON.stringify(userProfile))
           queryClient.setQueryData(['currentUser'], userProfile)
           console.log('✅ User profile cached after login')
+
+          // Ensure Supabase auth session (anonymous is fine for now)
+          try {
+            const { data: sessionData } = await supabase.auth.getSession()
+            if (!sessionData?.session) {
+              const { error: anonError } = await supabase.auth.signInAnonymously()
+              if (anonError) throw anonError
+            }
+            const { data: { user: supaUser } } = await supabase.auth.getUser()
+            if (supaUser) {
+              await dbService.createOrUpdateUser({
+                id: supaUser.id,
+                spotify_id: userProfile.id,
+                display_name: userProfile.display_name,
+                email: userProfile.email,
+                profile_image_url: userProfile.images?.[0]?.url,
+                spotify_product: userProfile.product,
+                country: userProfile.country
+              })
+              console.log('✅ Supabase user upserted')
+            } else {
+              console.warn('No Supabase user found after auth')
+            }
+          } catch (supabaseError) {
+            console.warn('Supabase auth/upsert failed:', supabaseError)
+          }
         } catch (profileError) {
           console.warn('Could not fetch user profile during callback:', profileError)
         }

@@ -9,6 +9,8 @@ import Home from "./pages/Home"
 import Favorites from "./pages/Favorites"
 import Analytics from "./pages/Analytics"
 import Profile from "./pages/Profile"
+import Trending from "./pages/Trending"
+import Feed from "./pages/Feed"
 
 function ProtectedRoute({ children }) {
   const token = getToken()
@@ -65,6 +67,24 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Analytics />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/trending"
+          element={
+            <ProtectedRoute>
+              <Trending />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/feed"
+          element={
+            <ProtectedRoute>
+              <Feed />
             </ProtectedRoute>
           }
         />
