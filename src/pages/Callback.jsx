@@ -40,7 +40,7 @@ export default function Callback() {
           const existingToken = getToken()
           if (existingToken) {
             console.log('✅ Found existing token, redirecting to home')
-            navigate('/feed', { replace: true })
+            navigate('/', { replace: true })
             return
           }
           // Otherwise, wait a moment and check again (for React StrictMode double render)
@@ -171,7 +171,7 @@ export default function Callback() {
         await new Promise(resolve => setTimeout(resolve, 100))
         
         // Redirect to home page
-        navigate('/feed', { replace: true })
+        navigate('/', { replace: true })
       } catch (error) {
         console.error('❌ Callback error:', error)
         console.error('Error details:', {
