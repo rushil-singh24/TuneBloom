@@ -126,29 +126,33 @@ export default function Callback() {
           console.log('✅ User profile cached after login')
 
           // Ensure Supabase auth session (anonymous is fine for now)
-          try {
-            const { data: sessionData } = await supabase.auth.getSession()
-            if (!sessionData?.session) {
-              const { error: anonError } = await supabase.auth.signInAnonymously()
-              if (anonError) throw anonError
+          if (supabase) {
+            try {
+              const { data: sessionData } = await supabase.auth.getSession()
+              if (!sessionData?.session) {
+                const { error: anonError } = await supabase.auth.signInAnonymously()
+                if (anonError) throw anonError
+              }
+              const { data: { user: supaUser } } = await supabase.auth.getUser()
+              if (supaUser) {
+                await dbService.createOrUpdateUser({
+                  id: supaUser.id,
+                  spotify_id: userProfile.id,
+                  display_name: userProfile.display_name,
+                  email: userProfile.email,
+                  profile_image_url: userProfile.images?.[0]?.url,
+                  spotify_product: userProfile.product,
+                  country: userProfile.country
+                })
+                console.log('✅ Supabase user upserted')
+              } else {
+                console.warn('No Supabase user found after auth')
+              }
+            } catch (supabaseError) {
+              console.warn('Supabase auth/upsert failed:', supabaseError)
             }
-            const { data: { user: supaUser } } = await supabase.auth.getUser()
-            if (supaUser) {
-              await dbService.createOrUpdateUser({
-                id: supaUser.id,
-                spotify_id: userProfile.id,
-                display_name: userProfile.display_name,
-                email: userProfile.email,
-                profile_image_url: userProfile.images?.[0]?.url,
-                spotify_product: userProfile.product,
-                country: userProfile.country
-              })
-              console.log('✅ Supabase user upserted')
-            } else {
-              console.warn('No Supabase user found after auth')
-            }
-          } catch (supabaseError) {
-            console.warn('Supabase auth/upsert failed:', supabaseError)
+          } else {
+            console.warn('Supabase not configured; skipping Supabase auth/upsert')
           }
         } catch (profileError) {
           console.warn('Could not fetch user profile during callback:', profileError)
