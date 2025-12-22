@@ -24,8 +24,8 @@ export default function App() {
   const token = getToken()
 
   useEffect(() => {
-    // Allow both canonical callback and the /api/auth/callback alias used in some Spotify app configs
-    const publicRoutes = ["/login", "/callback", "/api/auth/callback"]
+    // Public routes: login and the canonical callback
+    const publicRoutes = ["/login", "/callback"]
     if (!token && !publicRoutes.includes(location.pathname)) {
       navigate("/login", { replace: true })
     }
@@ -37,14 +37,13 @@ export default function App() {
     }
   }, [token])
 
-  const hideBottomNav = ["/login", "/callback", "/api/auth/callback"].includes(location.pathname)
+  const hideBottomNav = ["/login", "/callback"].includes(location.pathname)
 
   return (
     <div className={`min-h-screen text-white ${location.pathname === '/login' ? '' : 'bg-[#0a0a0a]'}`}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/callback" element={<Callback />} />
-        <Route path="/api/auth/callback" element={<Callback />} />
 
         <Route
           path="/"
