@@ -94,6 +94,10 @@ export default function Callback() {
         
         console.log('🔄 Exchanging authorization code for token...')
         const tokenData = await exchangeCodeForToken(code)
+        console.log('💡 Token data returned:', tokenData)
+        if (!tokenData?.access_token) {
+          throw new Error('Token exchange failed: no access token returned')
+        }
         
         console.log('✅ Token exchange successful:', {
           hasAccessToken: !!tokenData.access_token,
