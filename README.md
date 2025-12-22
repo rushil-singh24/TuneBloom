@@ -59,4 +59,5 @@ See [SPOTIFY_SETUP.md](./SPOTIFY_SETUP.md) for detailed deployment instructions.
 - Tailwind CSS
 - Framer Motion
 - Spotify Web API
-- React Query
+- Javascript
+- PostgreSQL
