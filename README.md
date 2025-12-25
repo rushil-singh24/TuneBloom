@@ -2,8 +2,8 @@
 Discover new tunes with personalized music recommendations powered by Spotify.
 
 ![Homepage](TBHome.jpeg)
-![Song Card](TBCardDiscovery.jpeg)
-![Playlist Feature](TBPlaylists.jpeg)
+![Song Card](SongCard.jpeg)
+![Playlist Feature](PlaylistAddition.jpeg)
 
 ## Quick Start
 
