@@ -1,6 +1,10 @@
 # TuneBloom
 Discover new tunes with personalized music recommendations powered by Spotify.
 
+![Homepage](main/TuneBloomHomepage.jpeg)
+![Song Card](main/TBCardDiscovery.jpeg)
+![Playlist Feature](main/TBPlaylists.jpeg)
+
 ## Quick Start
 
 ### 1. Install Dependencies
